@@ -1,0 +1,367 @@
+[
+ {
+  "kind": "chapter",
+  "number": 1,
+  "title": "Ten Minutes to Your First Metric",
+  "part": "PART I \u2014 Get something on the screen (ch 1\u20133)",
+  "spec": "ch01.md",
+  "spec_words": 590,
+  "target_words": 5000
+ },
+ {
+  "kind": "chapter",
+  "number": 2,
+  "title": "What's Actually on the Wire",
+  "part": "PART I \u2014 Get something on the screen (ch 1\u20133)",
+  "spec": "ch02.md",
+  "spec_words": 658,
+  "target_words": 6000
+ },
+ {
+  "kind": "chapter",
+  "number": 3,
+  "title": "Your First Dashboard: The Early Win",
+  "part": "PART I \u2014 Get something on the screen (ch 1\u20133)",
+  "spec": "ch03.md",
+  "spec_words": 664,
+  "target_words": 5500
+ },
+ {
+  "kind": "chapter",
+  "number": 4,
+  "title": "Metric Types Are Contracts",
+  "part": "PART II \u2014 Make the metrics yours (ch 4\u20137)",
+  "spec": "ch04.md",
+  "spec_words": 669,
+  "target_words": 5500
+ },
+ {
+  "kind": "chapter",
+  "number": 5,
+  "title": "Your First Counter: Instrumenting Code You Own",
+  "part": "PART II \u2014 Make the metrics yours (ch 4\u20137)",
+  "spec": "ch05.md",
+  "spec_words": 682,
+  "target_words": 6500
+ },
+ {
+  "kind": "chapter",
+  "number": 6,
+  "title": "`rate()`, `increase()`, and Why Nothing Is a Whole Number",
+  "part": "PART II \u2014 Make the metrics yours (ch 4\u20137)",
+  "spec": "ch06.md",
+  "spec_words": 795,
+  "target_words": 7500
+ },
+ {
+  "kind": "chapter",
+  "number": 7,
+  "title": "Labels, and the Cardinality Arithmetic You Must Do First",
+  "part": "PART II \u2014 Make the metrics yours (ch 4\u20137)",
+  "spec": "ch07.md",
+  "spec_words": 795,
+  "target_words": 6000
+ },
+ {
+  "kind": "chapter",
+  "number": 8,
+  "title": "Aggregation: `sum`, `without`, and the Rate-Then-Aggregate Law",
+  "part": "PART III \u2014 Ask better questions (ch 8\u201311)",
+  "spec": "ch08.md",
+  "spec_words": 544,
+  "target_words": 6000
+ },
+ {
+  "kind": "chapter",
+  "number": 9,
+  "title": "Ratios, Arithmetic, and the Series That Isn't There",
+  "part": "PART III \u2014 Ask better questions (ch 8\u201311)",
+  "spec": "ch09.md",
+  "spec_words": 697,
+  "target_words": 6500
+ },
+ {
+  "kind": "chapter",
+  "number": 10,
+  "title": "Latency: Histograms Without Tears",
+  "part": "PART III \u2014 Ask better questions (ch 8\u201311)",
+  "spec": "ch10.md",
+  "spec_words": 866,
+  "target_words": 8000
+ },
+ {
+  "kind": "chapter",
+  "number": 11,
+  "title": "Joins, Info Metrics, and the Rest of PromQL",
+  "part": "PART III \u2014 Ask better questions (ch 8\u201311)",
+  "spec": "ch11.md",
+  "spec_words": 848,
+  "target_words": 6000
+ },
+ {
+  "kind": "chapter",
+  "number": 12,
+  "title": "`prometheus.yml` in Full: Service Discovery and Relabeling",
+  "part": "PART IV \u2014 Run it like you mean it (ch 12\u201314)",
+  "spec": "ch12.md",
+  "spec_words": 725,
+  "target_words": 7000
+ },
+ {
+  "kind": "chapter",
+  "number": 13,
+  "title": "Dashboard Mechanics: Intervals, Panels and Variables",
+  "part": "PART IV \u2014 Run it like you mean it (ch 12\u201314)",
+  "spec": "ch13.md",
+  "spec_words": 801,
+  "target_words": 6500
+ },
+ {
+  "kind": "chapter",
+  "number": 14,
+  "title": "Dashboards That Tell the Truth",
+  "part": "PART IV \u2014 Run it like you mean it (ch 12\u201314)",
+  "spec": "ch14.md",
+  "spec_words": 697,
+  "target_words": 6000
+ },
+ {
+  "kind": "chapter",
+  "number": 15,
+  "title": "Recording Rules",
+  "part": "PART V \u2014 Alerts that reach the right human (ch 15\u201319)",
+  "spec": "ch15.md",
+  "spec_words": 488,
+  "target_words": 4500
+ },
+ {
+  "kind": "chapter",
+  "number": 16,
+  "title": "Alerting Rules, and What \"Firing\" Actually Means",
+  "part": "PART V \u2014 Alerts that reach the right human (ch 15\u201319)",
+  "spec": "ch16.md",
+  "spec_words": 638,
+  "target_words": 6500
+ },
+ {
+  "kind": "chapter",
+  "number": 17,
+  "title": "Alertmanager: Routing, Grouping and Silence",
+  "part": "PART V \u2014 Alerts that reach the right human (ch 15\u201319)",
+  "spec": "ch17.md",
+  "spec_words": 862,
+  "target_words": 7000
+ },
+ {
+  "kind": "chapter",
+  "number": 18,
+  "title": "Testing Alerts Before They Page You",
+  "part": "PART V \u2014 Alerts that reach the right human (ch 15\u201319)",
+  "spec": "ch18.md",
+  "spec_words": 500,
+  "target_words": 4500
+ },
+ {
+  "kind": "chapter",
+  "number": 19,
+  "title": "What a Page Should Say, and Who Watches the Watcher",
+  "part": "PART V \u2014 Alerts that reach the right human (ch 15\u201319)",
+  "spec": "ch19.md",
+  "spec_words": 806,
+  "target_words": 5500
+ },
+ {
+  "kind": "chapter",
+  "number": 20,
+  "title": "SLIs, SLOs and Error Budgets",
+  "part": "PART VI \u2014 Alerts that don't cry wolf (ch 20\u201321)",
+  "spec": "ch20.md",
+  "spec_words": 820,
+  "target_words": 6500
+ },
+ {
+  "kind": "chapter",
+  "number": 21,
+  "title": "Burn Rates: Alerts That Don't Cry Wolf",
+  "part": "PART VI \u2014 Alerts that don't cry wolf (ch 20\u201321)",
+  "spec": "ch21.md",
+  "spec_words": 1013,
+  "target_words": 8000
+ },
+ {
+  "kind": "chapter",
+  "number": 22,
+  "title": "Metrics From Things You Didn't Write",
+  "part": "PART VII \u2014 Everything you didn't write (ch 22\u201323)",
+  "spec": "ch22.md",
+  "spec_words": 834,
+  "target_words": 6500
+ },
+ {
+  "kind": "chapter",
+  "number": 23,
+  "title": "The Multi-Target Pattern: Probing From Outside",
+  "part": "PART VII \u2014 Everything you didn't write (ch 22\u201323)",
+  "spec": "ch23.md",
+  "spec_words": 772,
+  "target_words": 4500
+ },
+ {
+  "kind": "chapter",
+  "number": 24,
+  "title": "Cardinality: Detonate, Diagnose, Defuse",
+  "part": "PART VIII \u2014 Living with it (ch 24\u201326)",
+  "spec": "ch24.md",
+  "spec_words": 724,
+  "target_words": 5500
+ },
+ {
+  "kind": "chapter",
+  "number": 25,
+  "title": "Storage, Retention, Backups and Locking the Door",
+  "part": "PART VIII \u2014 Living with it (ch 24\u201326)",
+  "spec": "ch25.md",
+  "spec_words": 842,
+  "target_words": 6500
+ },
+ {
+  "kind": "chapter",
+  "number": 26,
+  "title": "When One Prometheus Isn't Enough: HA, `remote_write`, and the Scaling Map",
+  "part": "PART VIII \u2014 Living with it (ch 24\u201326)",
+  "spec": "ch26.md",
+  "spec_words": 1096,
+  "target_words": 6500
+ },
+ {
+  "kind": "chapter",
+  "number": 27,
+  "title": "Optional: What Changes on Kubernetes",
+  "part": "PART IX \u2014 The wider world (ch 27\u201329)",
+  "spec": "ch27.md",
+  "spec_words": 1002,
+  "target_words": 7000
+ },
+ {
+  "kind": "chapter",
+  "number": 28,
+  "title": "OpenTelemetry and Prometheus",
+  "part": "PART IX \u2014 The wider world (ch 27\u201329)",
+  "spec": "ch28.md",
+  "spec_words": 715,
+  "target_words": 5000
+ },
+ {
+  "kind": "chapter",
+  "number": 29,
+  "title": "Beyond Metrics: Exemplars, Traces, Logs, and Where to Go Next",
+  "part": "PART IX \u2014 The wider world (ch 27\u201329)",
+  "spec": "ch29.md",
+  "spec_words": 921,
+  "target_words": 5500
+ },
+ {
+  "kind": "front",
+  "number": 1,
+  "title": "Who this book is for, and what it assumes",
+  "part": "Front matter",
+  "spec": "front-matter.md",
+  "target_words": 700
+ },
+ {
+  "kind": "front",
+  "number": 2,
+  "title": "How to read this book",
+  "part": "Front matter",
+  "spec": "front-matter.md",
+  "target_words": 600
+ },
+ {
+  "kind": "front",
+  "number": 3,
+  "title": "What you need",
+  "part": "Front matter",
+  "spec": "front-matter.md",
+  "target_words": 500
+ },
+ {
+  "kind": "front",
+  "number": 4,
+  "title": "The lab in one page",
+  "part": "Front matter",
+  "spec": "front-matter.md",
+  "target_words": 500
+ },
+ {
+  "kind": "front",
+  "number": 5,
+  "title": "Versions this book was written against",
+  "part": "Front matter",
+  "spec": "front-matter.md",
+  "target_words": 600
+ },
+ {
+  "kind": "front",
+  "number": 6,
+  "title": "Conventions",
+  "part": "Front matter",
+  "spec": "front-matter.md",
+  "target_words": 600
+ },
+ {
+  "kind": "appendix",
+  "number": "A",
+  "title": "The Complete Lab: `compose.yaml`, Every Config File, and the Chapter Tag Map",
+  "part": "Appendices",
+  "spec": "appendices.md",
+  "target_words": 2500
+ },
+ {
+  "kind": "appendix",
+  "number": "B",
+  "title": "The No-Data Debugging Ladder (tear-out)",
+  "part": "Appendices",
+  "spec": "appendices.md",
+  "target_words": 1800
+ },
+ {
+  "kind": "appendix",
+  "number": "C",
+  "title": "PromQL Organised by Type",
+  "part": "Appendices",
+  "spec": "appendices.md",
+  "target_words": 3500
+ },
+ {
+  "kind": "appendix",
+  "number": "D",
+  "title": "Metric and Label Design Checklist, with the Cardinality Worksheet",
+  "part": "Appendices",
+  "spec": "appendices.md",
+  "target_words": 1800
+ },
+ {
+  "kind": "appendix",
+  "number": "E",
+  "title": "The Same Three Metrics in Go, Java and Node",
+  "part": "Appendices",
+  "spec": "appendices.md",
+  "target_words": 3500
+ },
+ {
+  "kind": "appendix",
+  "number": "F",
+  "title": "Reading Older Material Without Being Misled",
+  "part": "Appendices",
+  "spec": "appendices.md",
+  "target_words": 2500
+ },
+ {
+  "kind": "appendix",
+  "number": "G",
+  "title": "The `promtool` Cookbook",
+  "part": "Appendices",
+  "spec": "appendices.md",
+  "target_words": 2000
+ }
+]

@@ -1,0 +1,353 @@
+/* ===================================================================
+   Observability with Prometheus and Grafana — EPUB stylesheet
+   Designed for e-ink readers, Calibre, Apple Books and KOReader.
+   Rules of thumb applied here:
+     - never set a fixed body font-size (readers override it anyway)
+     - code must wrap; e-readers cannot scroll horizontally
+     - avoid colour as the only signal; e-ink is greyscale
+   =================================================================== */
+
+body {
+  margin: 0 4%;
+  line-height: 1.5;
+  text-align: left;          /* justified text looks bad on narrow e-ink */
+  widows: 2;
+  orphans: 2;
+}
+
+/* ---------- headings ---------- */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: sans-serif;
+  font-weight: bold;
+  line-height: 1.25;
+  text-align: left;
+  page-break-after: avoid;
+  break-after: avoid;
+  -webkit-hyphens: none;
+  hyphens: none;
+}
+
+h1 {
+  font-size: 1.7em;
+  margin: 1.2em 0 0.8em 0;
+  page-break-before: always;
+  break-before: page;
+  border-bottom: 3px solid #444;
+  padding-bottom: 0.25em;
+}
+
+h2 { font-size: 1.32em; margin: 1.6em 0 0.5em 0; border-bottom: 1px solid #bbb; padding-bottom: 0.12em; }
+h3 { font-size: 1.12em; margin: 1.4em 0 0.4em 0; }
+h4 { font-size: 1.0em;  margin: 1.2em 0 0.3em 0; font-style: italic; }
+
+/* the part-opener and front-matter pages use .titlepage to suppress the rule */
+.titlepage h1 { border-bottom: none; text-align: center; }
+
+/* ---------- body text ---------- */
+
+p {
+  margin: 0 0 0.75em 0;
+  text-indent: 0;
+}
+
+a { text-decoration: none; }
+a:link { color: #14487a; }
+
+strong { font-weight: bold; }
+em { font-style: italic; }
+
+hr {
+  border: none;
+  border-top: 1px solid #bbb;
+  margin: 1.6em 20%;
+}
+
+/* ---------- lists ---------- */
+
+ul, ol { margin: 0 0 0.85em 0; padding-left: 1.4em; }
+li { margin-bottom: 0.3em; }
+li > ul, li > ol { margin-top: 0.3em; margin-bottom: 0.3em; }
+
+dl { margin: 0 0 0.85em 0; }
+dt { font-weight: bold; margin-top: 0.5em; }
+dd { margin: 0 0 0.4em 1.4em; }
+
+/* ---------- code ---------- */
+
+code, kbd, samp, tt {
+  font-family: "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
+  font-size: 0.85em;
+}
+
+/* inline code */
+p code, li code, td code, dd code, h1 code, h2 code, h3 code, h4 code, a code {
+  background-color: #f0f0f0;
+  padding: 0 0.15em;
+  border-radius: 2px;
+  -webkit-hyphens: none;
+  hyphens: none;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* block code — MUST wrap, e-readers have no horizontal scroll */
+pre {
+  font-family: "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
+  font-size: 0.78em;
+  line-height: 1.35;
+  background-color: #f6f6f6;
+  border: 1px solid #d8d8d8;
+  border-left: 4px solid #888;
+  padding: 0.55em 0.7em;
+  margin: 0.9em 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  -webkit-hyphens: none;
+  hyphens: none;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 1em;
+  border: none;
+}
+
+/* the codehilite wrapper python-markdown emits */
+div.codehilite { margin: 0.9em 0; }
+div.codehilite pre { margin: 0; }
+
+/* ASCII diagrams: keep them tight and never let a reader font break the alignment */
+pre.diagram, div.codehilite.diagram pre {
+  background-color: #fbfbfb;
+  border-left: 1px solid #d8d8d8;
+  font-size: 0.7em;
+  line-height: 1.15;
+}
+
+/* ---------- admonitions (Note / Warning / Tip / Pitfall) ---------- */
+
+div.admonition {
+  margin: 1.1em 0;
+  padding: 0.6em 0.8em;
+  border: 1px solid #c8c8c8;
+  border-left: 5px solid #666;
+  background-color: #f7f7f7;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+div.admonition > p.admonition-title {
+  font-family: sans-serif;
+  font-weight: bold;
+  font-size: 0.9em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 0 0 0.4em 0;
+}
+
+div.admonition > p:last-child { margin-bottom: 0; }
+
+div.admonition.warning,
+div.admonition.pitfall,
+div.admonition.trap     { border-left-color: #a11; background-color: #fbf3f3; }
+div.admonition.tip,
+div.admonition.hint     { border-left-color: #185; background-color: #f2f8f5; }
+div.admonition.note,
+div.admonition.info     { border-left-color: #148; background-color: #f2f5fa; }
+div.admonition.exercise { border-left-color: #741; background-color: #faf7f2; }
+div.admonition.jargon   { border-left-color: #555; background-color: #f4f4f4; }
+
+/* --- book-specific recurring devices (see manuscript/_STYLE-GUIDE.md) --- */
+
+/* a debt: "you don't understand this yet, and that's the plan" */
+div.admonition.iou {
+  border-left-color: #86651a;
+  border-style: dashed;
+  border-left-style: solid;
+  background-color: #fbf8f0;
+}
+
+/* "run this, expect exactly that" — the reader's only colleague */
+div.admonition.selfcheck {
+  border-left-color: #185;
+  border-top: 1px solid #185;
+  border-bottom: 1px solid #185;
+  background-color: #f1f8f4;
+}
+
+/* a pointer into the no-data debugging ladder in Appendix B */
+div.admonition.ladder {
+  border-left-color: #148;
+  background-color: #f2f5fa;
+  font-size: 0.95em;
+}
+
+/* an aside the reader may skip without losing the thread */
+div.admonition.sidebar {
+  border-left-color: #777;
+  border-right: 1px solid #c8c8c8;
+  background-color: #f7f7f7;
+  font-size: 0.95em;
+}
+
+/* "if you are on Grafana 12.4" — that support window runs to May 2027 */
+div.admonition.grafana12 {
+  border-left-color: #a5641a;
+  background-color: #faf6f1;
+  font-size: 0.95em;
+}
+
+/* ---------- tables ---------- */
+
+table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+  font-size: 0.85em;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+th, td {
+  border: 1px solid #bbb;
+  padding: 0.3em 0.45em;
+  text-align: left;
+  vertical-align: top;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+th {
+  background-color: #eee;
+  font-family: sans-serif;
+  font-weight: bold;
+}
+
+tr:nth-child(even) td { background-color: #fafafa; }
+
+/* ---------- blockquote ---------- */
+
+blockquote {
+  margin: 1em 1.2em;
+  padding-left: 0.8em;
+  border-left: 3px solid #ccc;
+  font-style: italic;
+}
+
+/* ---------- figures & images ---------- */
+
+img { max-width: 100%; height: auto; }
+
+figure { margin: 1.1em 0; text-align: center; }
+figcaption {
+  font-size: 0.82em;
+  font-style: italic;
+  color: #444;
+  margin-top: 0.35em;
+}
+
+/* ---------- footnotes ---------- */
+
+div.footnote {
+  font-size: 0.85em;
+  border-top: 1px solid #ccc;
+  margin-top: 2em;
+  padding-top: 0.5em;
+}
+sup a { font-size: 0.8em; }
+
+/* ---------- book-specific furniture ---------- */
+
+/* part opener page */
+.part-opener {
+  page-break-before: always;
+  break-before: page;
+  text-align: center;
+  margin-top: 22%;
+}
+.part-opener .part-label {
+  font-family: sans-serif;
+  font-size: 1.0em;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #555;
+  margin-bottom: 0.6em;
+}
+.part-opener h1 {
+  border-bottom: none;
+  page-break-before: avoid;
+  break-before: avoid;
+  font-size: 2.0em;
+  margin: 0 0 0.8em 0;
+}
+.part-opener .part-blurb {
+  text-align: left;
+  margin: 1.5em 8% 0 8%;
+  font-size: 0.95em;
+}
+
+/* "In this chapter you will learn" box */
+div.objectives {
+  border: 1px solid #999;
+  border-top: 4px solid #444;
+  background-color: #f5f5f5;
+  padding: 0.7em 0.9em;
+  margin: 1.1em 0 1.4em 0;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+div.objectives p.objectives-title {
+  font-family: sans-serif;
+  font-weight: bold;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.4em 0;
+}
+div.objectives ul { margin-bottom: 0; }
+
+/* chapter summary box */
+div.summary {
+  border-top: 2px solid #444;
+  border-bottom: 2px solid #444;
+  padding: 0.7em 0;
+  margin: 1.6em 0;
+}
+
+/* title page */
+.title-page { text-align: center; margin-top: 25%; }
+.title-page .book-title { font-family: sans-serif; font-size: 2.2em; font-weight: bold; line-height: 1.2; margin-bottom: 0.4em; }
+.title-page .book-subtitle { font-family: sans-serif; font-size: 1.15em; color: #444; margin-bottom: 2.5em; }
+.title-page .book-author { font-family: sans-serif; font-size: 1.0em; letter-spacing: 0.1em; text-transform: uppercase; }
+.title-page .book-meta { margin-top: 3em; font-size: 0.85em; color: #555; }
+
+/* cover page */
+.cover-page { text-align: center; padding: 0; margin: 0; }
+.cover-page img { max-width: 100%; max-height: 100%; }
+
+/* ---------- dark mode (readers that honour it) ---------- */
+
+@media (prefers-color-scheme: dark) {
+  pre, div.codehilite pre { background-color: #1e1e1e; border-color: #3a3a3a; border-left-color: #777; color: #ddd; }
+  p code, li code, td code, dd code { background-color: #2a2a2a; }
+  th { background-color: #2a2a2a; }
+  tr:nth-child(even) td { background-color: #232323; }
+  div.admonition { background-color: #232323; border-color: #3a3a3a; }
+  div.admonition.warning, div.admonition.pitfall,
+  div.admonition.trap { background-color: #2a1e1e; }
+  div.admonition.tip, div.admonition.hint,
+  div.admonition.selfcheck { background-color: #1e2a22; }
+  div.admonition.note, div.admonition.info,
+  div.admonition.ladder { background-color: #1e242e; }
+  div.admonition.exercise, div.admonition.iou,
+  div.admonition.grafana12 { background-color: #2a251e; }
+  div.admonition.sidebar { background-color: #212121; border-right-color: #3a3a3a; }
+  div.objectives { background-color: #232323; border-color: #555; border-top-color: #999; }
+  a:link { color: #7ab4e8; }
+  figcaption { color: #aaa; }
+}

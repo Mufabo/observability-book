@@ -1,0 +1,284 @@
+{
+ "title": "Observability with Prometheus and Grafana",
+ "subtitle": "A Hands-On Introduction",
+ "author": "Co-Authored with Claude",
+ "language": "en",
+ "identifier": "urn:uuid:b505649d-ed54-58e9-affc-be3139a3f847",
+ "date": "2026",
+ "publisher": "Co-Authored with Claude",
+ "description": "A hands-on introduction to observability for developers who have never operated anything. Instrument a real service, query it with PromQL, build dashboards that tell the truth, and set up alerts that do not cry wolf — building one Docker Compose stack that grows chapter by chapter.",
+ "subjects": [
+  "Prometheus",
+  "Grafana",
+  "Observability",
+  "Monitoring",
+  "PromQL",
+  "SRE",
+  "DevOps",
+  "Alerting"
+ ],
+ "rights": "Written against Prometheus 3.13.1 and Grafana 13.1.1, verified 2026-09-18.",
+ "cover": "build/cover.png",
+ "css": "build/styles.css",
+ "items": [
+  {
+   "type": "titlepage"
+  },
+  {
+   "type": "front",
+   "file": "00-front-matter.md",
+   "title": "Front matter",
+   "subtoc": true
+  },
+  {
+   "type": "part",
+   "label": "Part I",
+   "title": "Get something on the screen",
+   "blurb": "Snip returned 500s on `/l/{code}` for forty minutes last Saturday and the first anyone heard was an email from a user. Nobody could say when it started, how many people hit it, or whether it was still getting worse. Write those three questions on the inside cover: chapter 2 answers the first, chapter 9 the second, chapter 21 the third. By the end of this part you will have a live dashboard of a real service on your own laptop."
+  },
+  {
+   "type": "chapter",
+   "file": "ch01-ten-minutes-to-your-first-metric.md",
+   "title": "Chapter 1 — Ten Minutes to Your First Metric"
+  },
+  {
+   "type": "chapter",
+   "file": "ch02-what-s-actually-on-the-wire.md",
+   "title": "Chapter 2 — What's Actually on the Wire"
+  },
+  {
+   "type": "chapter",
+   "file": "ch03-your-first-dashboard-the-early-win.md",
+   "title": "Chapter 3 — Your First Dashboard: The Early Win"
+  },
+  {
+   "type": "part",
+   "label": "Part II",
+   "title": "Make the metrics yours",
+   "blurb": "The dashboard is green and a user is complaining. It is green because it is counting requests to `/`, and because `catalog`'s \"queue depth\" metric is a gauge that is really a counter, so `rate()` over it has been producing confident nonsense for a month. Nobody has read what these services actually expose. This part makes the metrics yours: you will choose types on purpose, write your own, learn why the raw counter graph is useless, and calculate the cost of a label before you add it."
+  },
+  {
+   "type": "chapter",
+   "file": "ch04-metric-types-are-contracts.md",
+   "title": "Chapter 4 — Metric Types Are Contracts"
+  },
+  {
+   "type": "chapter",
+   "file": "ch05-your-first-counter-instrumenting-code-you-own.md",
+   "title": "Chapter 5 — Your First Counter: Instrumenting Code You Own"
+  },
+  {
+   "type": "chapter",
+   "file": "ch06-rate-increase-and-why-nothing-is-a-whole-number.md",
+   "title": "Chapter 6 — `rate()`, `increase()`, and Why Nothing Is a Whole Number"
+  },
+  {
+   "type": "chapter",
+   "file": "ch07-labels-and-the-cardinality-arithmetic-you-must-d.md",
+   "title": "Chapter 7 — Labels, and the Cardinality Arithmetic You Must Do First"
+  },
+  {
+   "type": "part",
+   "label": "Part III",
+   "title": "Ask better questions",
+   "blurb": "The p95 panel reads 250 ms; users say a redirect takes eight seconds. The error-ratio panel goes blank exactly when the service is healthy. And a routine restart of one replica put a spike on the graph that never happened. All three panels contain correct-looking PromQL. This part is about the questions behind the queries: how to aggregate without lying, how to divide without vanishing, how to measure latency honestly, and how to join one series to another."
+  },
+  {
+   "type": "chapter",
+   "file": "ch08-aggregation-sum-without-and-the-rate-then-aggreg.md",
+   "title": "Chapter 8 — Aggregation: `sum`, `without`, and the Rate-Then-Aggregate Law"
+  },
+  {
+   "type": "chapter",
+   "file": "ch09-ratios-arithmetic-and-the-series-that-isn-t-ther.md",
+   "title": "Chapter 9 — Ratios, Arithmetic, and the Series That Isn't There"
+  },
+  {
+   "type": "chapter",
+   "file": "ch10-latency-histograms-without-tears.md",
+   "title": "Chapter 10 — Latency: Histograms Without Tears"
+  },
+  {
+   "type": "chapter",
+   "file": "ch11-joins-info-metrics-and-the-rest-of-promql.md",
+   "title": "Chapter 11 — Joins, Info Metrics, and the Rest of PromQL"
+  },
+  {
+   "type": "part",
+   "label": "Part IV",
+   "title": "Run it like you mean it",
+   "blurb": "Scaling Snip to four replicas means editing `prometheus.yml` four times and restarting it. The page that woke someone at 03:14 identified the failing thing as `172.19.0.7:8000`. And the dashboard everyone trusts renders one story on a laptop and a different one on the wall screen. This part is about configuration that finds its own targets, and panels that mean the same thing at every zoom level."
+  },
+  {
+   "type": "chapter",
+   "file": "ch12-prometheus-yml-in-full-service-discovery-and-rel.md",
+   "title": "Chapter 12 — `prometheus.yml` in Full: Service Discovery and Relabeling"
+  },
+  {
+   "type": "chapter",
+   "file": "ch13-dashboard-mechanics-intervals-panels-and-variabl.md",
+   "title": "Chapter 13 — Dashboard Mechanics: Intervals, Panels and Variables"
+  },
+  {
+   "type": "chapter",
+   "file": "ch14-dashboards-that-tell-the-truth.md",
+   "title": "Chapter 14 — Dashboards That Tell the Truth"
+  },
+  {
+   "type": "part",
+   "label": "Part V",
+   "title": "Alerts that reach the right human",
+   "blurb": "One page, at 03:14. It said `instance=172.19.0.7:8000` — chapter 12 fixed that. It had no `for`, no annotations, and it had resolved before anyone logged in. Its expression was a 300-character one-liner nobody could review and it took nine seconds to evaluate. It went to the wrong receiver, bundled with twelve unrelated alerts. And nobody had ever checked that it *could* fire. Five chapters, one flaw each."
+  },
+  {
+   "type": "chapter",
+   "file": "ch15-recording-rules.md",
+   "title": "Chapter 15 — Recording Rules"
+  },
+  {
+   "type": "chapter",
+   "file": "ch16-alerting-rules-and-what-firing-actually-means.md",
+   "title": "Chapter 16 — Alerting Rules, and What \"Firing\" Actually Means"
+  },
+  {
+   "type": "chapter",
+   "file": "ch17-alertmanager-routing-grouping-and-silence.md",
+   "title": "Chapter 17 — Alertmanager: Routing, Grouping and Silence"
+  },
+  {
+   "type": "chapter",
+   "file": "ch18-testing-alerts-before-they-page-you.md",
+   "title": "Chapter 18 — Testing Alerts Before They Page You"
+  },
+  {
+   "type": "chapter",
+   "file": "ch19-what-a-page-should-say-and-who-watches-the-watch.md",
+   "title": "Chapter 19 — What a Page Should Say, and Who Watches the Watcher"
+  },
+  {
+   "type": "part",
+   "label": "Part VI",
+   "title": "Alerts that don't cry wolf",
+   "blurb": "Three weeks, 47 pages, 44 of them noise — and the one that mattered arrived twenty minutes late. Every rule in chapter 16 is individually defensible and the set is unusable, because nobody has written down what \"working\" means. This part fixes that with two chapters: one that defines the target, and one that derives the alerts from it."
+  },
+  {
+   "type": "chapter",
+   "file": "ch20-slis-slos-and-error-budgets.md",
+   "title": "Chapter 20 — SLIs, SLOs and Error Budgets"
+  },
+  {
+   "type": "chapter",
+   "file": "ch21-burn-rates-alerts-that-don-t-cry-wolf.md",
+   "title": "Chapter 21 — Burn Rates: Alerts That Don't Cry Wolf"
+  },
+  {
+   "type": "part",
+   "label": "Part VII",
+   "title": "Everything you didn't write",
+   "blurb": "Redirect latency doubled overnight and you shipped nothing. The cause is underneath your code: a container that has been CPU-throttled since somebody tightened a Compose limit, and a database nobody was watching. This part is about metrics from software you did not write — and about the one exporter pattern that behaves differently from all the others."
+  },
+  {
+   "type": "chapter",
+   "file": "ch22-metrics-from-things-you-didn-t-write.md",
+   "title": "Chapter 22 — Metrics From Things You Didn't Write"
+  },
+  {
+   "type": "chapter",
+   "file": "ch23-the-multi-target-pattern-probing-from-outside.md",
+   "title": "Chapter 23 — The Multi-Target Pattern: Probing From Outside"
+  },
+  {
+   "type": "part",
+   "label": "Part VIII",
+   "title": "Living with it",
+   "blurb": "Prometheus OOMed on a Tuesday, four hours after a one-line change, and the graphs stop six hours ago because the disk filled. Then someone asked whether we could ship all of this to a central store, and whether losing the one Prometheus we have would be survivable. This part is about running the monitoring system as a system."
+  },
+  {
+   "type": "chapter",
+   "file": "ch24-cardinality-detonate-diagnose-defuse.md",
+   "title": "Chapter 24 — Cardinality: Detonate, Diagnose, Defuse"
+  },
+  {
+   "type": "chapter",
+   "file": "ch25-storage-retention-backups-and-locking-the-door.md",
+   "title": "Chapter 25 — Storage, Retention, Backups and Locking the Door"
+  },
+  {
+   "type": "chapter",
+   "file": "ch26-when-one-prometheus-isn-t-enough-ha-remote-write.md",
+   "title": "Chapter 26 — When One Prometheus Isn't Enough: HA, `remote_write`, and the Scaling Map"
+  },
+  {
+   "type": "part",
+   "label": "Part IX",
+   "title": "The wider world",
+   "blurb": "Everything so far runs on one laptop with Docker Compose, and everything so far transfers. This part says exactly what changes when the platform changes, what OpenTelemetry does and does not alter, and what to do when a metric genuinely cannot answer the question. All three chapters are optional; the book is complete without them."
+  },
+  {
+   "type": "chapter",
+   "file": "ch27-optional-what-changes-on-kubernetes.md",
+   "title": "Chapter 27 — Optional: What Changes on Kubernetes"
+  },
+  {
+   "type": "chapter",
+   "file": "ch28-opentelemetry-and-prometheus.md",
+   "title": "Chapter 28 — OpenTelemetry and Prometheus"
+  },
+  {
+   "type": "chapter",
+   "file": "ch29-beyond-metrics-exemplars-traces-logs-and-where-t.md",
+   "title": "Chapter 29 — Beyond Metrics: Exemplars, Traces, Logs, and Where to Go Next"
+  },
+  {
+   "type": "part",
+   "label": "Appendices",
+   "title": "Reference",
+   "blurb": "Material you will come back to: the lab in full, a debugging ladder, PromQL by type, naming and cardinality checklists, the same three metrics in three more languages, how to read older material, a promtool cookbook, the certification map, and worked solutions to every exercise."
+  },
+  {
+   "type": "appendix",
+   "file": "app-a-complete-lab.md",
+   "title": "Appendix A — The complete lab"
+  },
+  {
+   "type": "appendix",
+   "file": "app-b-debugging-ladder.md",
+   "title": "Appendix B — The No-Data Debugging Ladder"
+  },
+  {
+   "type": "appendix",
+   "file": "app-c-promql-by-type.md",
+   "title": "Appendix C — PromQL by type"
+  },
+  {
+   "type": "appendix",
+   "file": "app-d-naming-cardinality.md",
+   "title": "Appendix D — Metric and Label Design Checklist, with the Cardinality Worksheet"
+  },
+  {
+   "type": "appendix",
+   "file": "app-e-three-metrics-three-languages.md",
+   "title": "Appendix E — The Same Three Metrics in Go, Python, Java and Node"
+  },
+  {
+   "type": "appendix",
+   "file": "app-f-reading-older-material.md",
+   "title": "Appendix F — Reading Older Material Without Being Misled"
+  },
+  {
+   "type": "appendix",
+   "file": "app-g-promtool-cookbook.md",
+   "title": "Appendix G — The `promtool` Cookbook"
+  },
+  {
+   "type": "appendix",
+   "file": "app-h-pca.md",
+   "title": "Appendix H — The Prometheus Certified Associate exam"
+  },
+  {
+   "type": "appendix",
+   "file": "app-i-solutions.md",
+   "title": "Appendix I — Solutions to the exercises"
+  }
+ ]
+}
