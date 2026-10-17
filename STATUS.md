@@ -1,6 +1,6 @@
 # Project status
 
-Updated 2026-10-16. Keep this current — this project spans sessions and session
+Updated 2026-10-17. Keep this current — this project spans sessions and session
 limits interrupt work mid-flight.
 
 ## The deliverable
@@ -75,9 +75,19 @@ lab convention once, in the front matter: each tag is its chapter's end state; r
 Lab follow-up, 2026-10-17: `docs/runbooks/SnipSLIAbsent.md` written (ch19, added to the
 `LAB-SPEC.md` §4 tree), `verify-ch19.sh` now checks all four runbooks (19 assertions), and
 `scenario-noise-history.sh` sends `SnipSLIAbsent` as `page` to match the rule. History rebuilt
-with `chapter_map.py && cut_tags.py`; `promtool test rules` passes at `ch19` and `ch29`. ch19's
-printed noise-audit counts were adjusted by the one extra page notification (+1 to `pager-page`,
-re-extrapolated) rather than re-measured — re-run the scenario to confirm them.
+with `chapter_map.py && cut_tags.py`; `promtool test rules` passes at `ch19` and `ch29`.
+
+Measured 2026-10-17 (`lab/MEASURED.md` §12): ch19's noise audit was re-run on a live `ch19`
+stack, with six hours of Watchdog, then the scenario, then the audit. Every printed figure in
+ch19 and App I 19.3 now comes from that run. The measurement corrected three claims:
+- The heartbeat is every **two** minutes, not one: 180 in six hours, not 360.
+- The `increase()` rows don't sum to the `increase()` total, because series born inside the
+  window lose their first sample. The raw counters agree.
+- `SnipTargetDown` and `SnipHighErrorRatio` **tie** at the top; a single winner is not possible
+  with this script.
+
+The run also exposed that every tag committed files as `100644`, so `./scripts/*.sh` failed after
+a clone. `cut_tags.py` now stages shebang files as `100755` (44 at ch29).
 
 ## Work outstanding, in priority order
 

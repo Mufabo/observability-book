@@ -1762,8 +1762,9 @@ curl -s http://localhost:5001/api/notifications \
   | sort | uniq -c | sort -rn
 ```
 
-The winner is whichever alert the script skewed toward — in the
-chapter's own run, `SnipTargetDown`. Two points must appear in the
+The winners are the alerts the script keeps adding to. In the
+chapter's own run, `SnipTargetDown` and `SnipHighErrorRatio` tie at 14
+each, so defend or delete both. Two points must appear in the
 defense or the deletion. The Watchdog dominates the raw
 Alertmanager counter and is excluded by construction, because it goes
 to the `deadman` receiver and no human reads it. And `pager-ticket`

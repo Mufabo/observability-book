@@ -488,7 +488,7 @@ none of which can help you if Prometheus is not running.
 Every alert you have written so far follows one pattern: something becomes true, and a
 message is sent. That pattern cannot detect its own absence.
 
-Invert it. Write an alert that is *always* true, send it every minute forever, and point
+Invert it. Write an alert that is *always* true, send it every few minutes forever, and point
 it at a receiver whose job is to notice when the messages stop. The failure mode flips
 from silent to loud: a broken pipeline stops producing heartbeats, and the absence of
 heartbeats is a thing a program can see.
@@ -565,9 +565,15 @@ heartbeat rather than a notification. `send_resolved: false` because a resolved
 notification for `vector(1)` would be a message saying that one equals one is no longer
 true.
 
+Expect a heartbeat every two minutes, not every minute. Alertmanager considers a repeat
+only on a `group_interval` tick, and it logs each send a moment after the tick that
+triggered it. The next tick, exactly a minute later, finds the last heartbeat not quite a
+minute old and skips it. The six-hour measurement run in this chapter counted 180
+heartbeats, not 360.
+
 The endpoint is `/deadman` and not `/webhook`, and the pager treats it differently: it
-updates a clock and is deliberately kept out of the notification list. A heartbeat every
-minute would bury every real notification within an hour.
+updates a clock and is deliberately kept out of the notification list. Thirty heartbeats
+an hour would bury every real notification within an afternoon.
 
 Reload both programs. Prometheus takes `make reload`; Alertmanager has its own endpoint:
 
@@ -648,7 +654,7 @@ Until that `endsAt`, Alertmanager keeps re-notifying every `repeat_interval`, so
 heartbeats continue after Prometheus is already gone. Only then do they stop. Only then
 does the pager's own 180-second timer start counting toward red.
 
-That sum — Alertmanager's held-alert lifetime, plus one repeat interval, plus the
+That sum — Alertmanager's held-alert lifetime, plus one gap between heartbeats, plus the
 receiver's own patience — is the **detection time** of your dead man's switch, and it is
 the number to state when somebody asks how quickly you would know your monitoring had
 failed. On this lab it is several minutes. In a real installation the third clock lives
@@ -693,7 +699,7 @@ Run it. On the stack this chapter was measured on, the Watchdog had been firing 
 hours, and the query returned one row:
 
 ```text
-{alertname="Watchdog"}   718
+{alertname="Watchdog"}   720
 ```
 
 Yours has been firing only as long as you have been reading, so your count — and every
@@ -753,7 +759,7 @@ stays. That is the point.
 Now run the audit query. On the six-hour measurement run it returned one row:
 
 ```text
-{integration="webhook"}   402.04
+{integration="webhook"}   239.17
 ```
 
 That is honest and it is not yet useful, for two reasons you should know about before you
@@ -766,8 +772,8 @@ a `receiver_name` dimension on this counter in Alertmanager 0.33.1, but it is be
 number is fractional because `increase()` extrapolates to the window edges, exactly as
 Chapter 6, "`rate()`, `increase()`, and Why Nothing Is a Whole Number", showed.
 
-The second reason is the one that matters: most of those 402 notifications are the
-Watchdog. One a minute, by design, for six hours. Your dead man's switch is the loudest
+The second reason is the one that matters: most of those 239 notifications are the
+Watchdog. One every two minutes, by design, for six hours. Your dead man's switch is the loudest
 thing in your notification pipeline, and any volume number that does not account for it
 is nonsense.
 
@@ -779,20 +785,31 @@ sum by (receiver) (increase(pager_notifications_received_total[6h]))
 ```
 
 ```text
-{receiver="deadman"}       359.80
-{receiver="pager-page"}     17.10
-{receiver="pager-ticket"}   25.14
+{receiver="deadman"}       180.13
+{receiver="pager-page"}     13.96
+{receiver="pager-ticket"}   21.48
 ```
 
-Three useful facts in three rows. The heartbeat is 90 percent of the traffic and none of
-it is a page. The two human-facing receivers together carry about forty notifications,
-which matches the script. And `pager-ticket` is larger than `pager-page` even though
-fewer alerts are tickets — because `continue: true` sends every page to the ticket queue
-as well, which is exactly the behavior Chapter 17 wired up and here it is, measured.
+Three useful facts in three rows. The heartbeat is three quarters of the traffic and none
+of it is a page. `pager-ticket` is larger than `pager-page` even though fewer alerts are
+tickets — because `continue: true` sends every page to the ticket queue as well, which is
+exactly the behavior Chapter 17 wired up and here it is, measured. And the rows do not
+add up to the first query's answer: 180.13 + 13.96 + 21.48 comes to about 215.6, against
+239.17.
 
-Note also that the two totals agree: 359.80 + 17.10 + 25.14 is 402.04. Alertmanager
-counted what it attempted; the pager counted what arrived. When those two numbers stop
-agreeing, `AlertmanagerNotificationFailures` is about to fire.
+Nothing was lost. Ask for the raw counters, `sum(alertmanager_notifications_total)` and
+`sum(pager_notifications_received_total)`, and on the measurement run both read 243.
+Alertmanager counted what it attempted; the pager counted what arrived; they agree. The
+gap is `increase()` again. The `pager-page` and `pager-ticket` series did not exist
+until the script's first wave, so each one's first sample is the baseline `increase()`
+subtracts from, and whatever that sample had already counted drops out of the result.
+Alertmanager's `webhook` series has existed since the stack started, because the
+Watchdog created it, so it loses nothing.
+
+When you compare a sender with a receiver to catch lost notifications, compare raw
+counters, or series older than the window. Otherwise the comparison reports losses that
+never happened. When the raw counters stop agreeing, `AlertmanagerNotificationFailures`
+is about to fire.
 
 ### Which alert, though
 
@@ -806,21 +823,28 @@ curl -s http://localhost:5001/api/notifications \
 ```
 
 ```text
-     17 SnipTargetDown
-      9 PrometheusTargetScrapesFailing
-      8 SnipHighErrorRatio
-      2 AlertmanagerNotificationFailures
-      2 PrometheusNotificationsFailed
-      2 SnipSLIAbsent
-      1 SnipLatencyObjectiveAtRisk
-      1 PrometheusRuleEvaluationFailures
+     14 SnipTargetDown
+     14 SnipHighErrorRatio
+      7 PrometheusTargetScrapesFailing
+      6 SnipSLIAbsent
+      6 PrometheusNotificationsFailed
+      6 AlertmanagerNotificationFailures
+      3 SnipLatencyObjectiveAtRisk
+      3 PrometheusRuleEvaluationFailures
 ```
 
+These are the 59 notifications the pager received. The list counts every one, resolved
+notifications included, and every page twice, once per receiver. Each tail alert went out
+three times per receiver: when its group opened, again when `repeat_interval` came round,
+and once more when the script resolved it.
+
 That shape is the finding, and it is the shape you will see in real life. The
-distribution is never flat. Three alerts account for about eighty percent of the volume,
-and a long tail fires once. This is the single most reliable result in alert auditing:
-**the top three are almost always the whole problem.** Fix or delete those and the pager
-becomes usable; tune the tail and nothing changes.
+distribution is never flat. Three alerts account for 35 of the 59 notifications, about
+sixty percent, and the long tail fires a few times each. The two at the top tie, and not
+by chance: the script adds alerts to both groups in every wave, and a group flushes at
+most once per `group_interval`, however many alerts join it. This is the single most
+reliable result in alert auditing: **the few alerts at the top are most of the problem.**
+Fix or delete those and the pager becomes usable; tune the tail and nothing changes.
 
 !!! note "The metric that is not there"
     Chasing this, you will eventually find a dashboard or a blog post using
@@ -912,7 +936,7 @@ nobody trusts.
     PASS Watchdog is firing
     PASS the alertmanager job is up
     PASS the pager job is up
-         alertmanager_notifications_total = 402
+         alertmanager_notifications_total = 243
     PASS there is notification history to audit
 
     ch19: 19 passed, 0 failed
@@ -986,8 +1010,8 @@ The durable takeaways:
   `expr: vector(1)`, `severity: none`, routed somewhere that alarms when it *stops*
   arriving. Know its detection time and be able to state it.
 - Audit notifications, never the `ALERTS` series: `sum by (integration)
-  (increase(alertmanager_notifications_total[6h]))`, with the heartbeat subtracted. The top
-  three alerts are almost always the whole problem.
+  (increase(alertmanager_notifications_total[6h]))`, with the heartbeat subtracted. The few
+  alerts at the top are most of the problem.
 - Fewer than two paging events per 12-hour shift; a median of zero incidents per day; and
   a paging rule under 50 percent accurate is broken rather than sensitive.
 - The alert review is monthly, thirty minutes, with numbers. Every alert gets exactly one

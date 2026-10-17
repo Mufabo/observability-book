@@ -91,6 +91,21 @@ def copy_tree(src: str) -> None:
             shutil.copy2(s, d)
 
 
+def mark_executable():
+    # The working tree lives on NTFS, where git runs with core.fileMode=false
+    # and `git add` records every file as 100644. A reader on Linux or macOS
+    # then gets "Permission denied" from every `./scripts/...` the book
+    # prints. Anything that starts with a shebang is meant to be run: stage
+    # it as 100755 explicitly.
+    paths = []
+    for rel in run(["git", "ls-files"], LAB).splitlines():
+        with open(os.path.join(LAB, rel), "rb") as fh:
+            if fh.read(2) == b"#!":
+                paths.append(rel)
+    for i in range(0, len(paths), 100):
+        run(["git", "update-index", "--chmod=+x", "--"] + paths[i:i + 100], LAB)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -147,6 +162,7 @@ def main() -> int:
         wipe_worktree()
         copy_tree(dest)
         run(["git", "add", "-A"], LAB)
+        mark_executable()
         title = titles.get(n, f"chapter {n}")
         msg = (f"ch{n:02d}: {title}\n\n"
                f"The lab as it stands at the end of chapter {n}.\n"
