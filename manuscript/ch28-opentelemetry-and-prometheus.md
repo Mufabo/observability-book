@@ -5,27 +5,25 @@ metrics are already in Prometheus. You open the Query page, type the name
 they gave you — `http.server.request.duration` — and get a parse error.
 You try again without the dots and find
 `http_server_request_duration_seconds_bucket`, which nobody wrote and
-which is now the name in your alert rules forever. Every series carries
-three labels beginning `otel_scope_`. There is a metric called
-`target_info` that you did not create and cannot explain. The `instance`
-label is a string of hexadecimal that matches nothing else in the
-database. And `up` for that service does not exist at all, so the
+which is now the name in your alert rules forever. There is a metric
+called `target_info` that you did not create and cannot explain. The
+`instance` label is a string of hexadecimal that matches nothing else in
+the database. And `up` for that service does not exist at all, so the
 question you have been able to answer since your first scrape — is it
 still there? — has no answer.
 
 Nothing is broken. This is what OpenTelemetry metrics look like after
 they land in Prometheus, and every one of those surprises is a
-documented, deterministic translation rule. The trouble is that the rules
-are invisible until they have already rewritten your metric names, and by
-then they are in your dashboards.
+documented, deterministic translation rule. The rules are invisible until
+they have already rewritten your metric names, and by then they are in
+your dashboards.
 
-This chapter runs that translation on your own machine, on a service you
-already know. `snip-worker` has been exporting four metric families
-through `client_golang` since you instrumented it. You are going to
-re-point it at the OpenTelemetry SDK, push the same four families into
-Prometheus's own receiver, and then go and look at what arrived. Then you
-will get an honest answer to the question the whole chapter exists for:
-should you do this on purpose?
+So run the translation on your own machine, on a service you already
+know. `snip-worker` has been exporting four metric families through
+`client_golang` since you instrumented it. You are going to re-point it
+at the OpenTelemetry SDK, push the same four families into Prometheus's
+own receiver, and go and look at what arrived — and then answer the
+question the whole chapter exists for: should you do this on purpose?
 
 !!! objectives "Objectives"
     After this chapter you can:
@@ -36,8 +34,8 @@ should you do this on purpose?
       and a UCUM unit, before you look.
     - Find your resource attributes after ingestion and promote the two
       that matter.
-    - Explain why delta temporality is a silent data-loss path into
-      Prometheus.
+    - Explain why delta temporality is a data-loss path, and tell the
+      loud version from the silent one.
     - State what OTLP ingestion costs on every series, and what it does
       not cost.
     - Say why native client libraries, and not the OTel SDK,
@@ -46,12 +44,12 @@ should you do this on purpose?
 ## Where the lab is
 
 This runs against the base stack as Chapter 26, "When One Prometheus
-Isn't Enough", left it. Chapter 26's second Prometheus lives in an
-overlay file, and Chapter 27, "Optional: What Changes on Kubernetes",
-never touches `compose.yaml` at all, so neither is needed here and
-neither is in the way. The `ch28` tag carries the OpenTelemetry recorder
-in `snip/otelmetrics.go`, the receiver flag and the `otlp:` block, to read
-along with; to add the server side yourself, check out `ch27` instead.
+Isn't Enough: HA, `remote_write`, and the Scaling Map", left it. Chapter
+26's second Prometheus lives in an overlay file, and Chapter 27,
+"Optional: What Changes on Kubernetes", never touches `compose.yaml` at
+all, so neither is needed here. The `ch28` tag carries the OpenTelemetry
+recorder in `lab/snip/otelmetrics.go`, the receiver flag and the `otlp:`
+block; to add the server side yourself, check out `ch27` instead.
 
 ```bash
 cd lab
@@ -65,10 +63,9 @@ Since Chapter 25, "Storage, Retention, Backups and Locking the Door",
 Prometheus has had no published host port. It answers at
 `https://localhost:8443/prometheus/` through `edge`, with the basic-auth
 credential `obslab` / `obslab` and a certificate from Caddy's own
-authority, which is why every `curl` below carries `-k`. Grafana is still
-on `http://localhost:3000/`, the worker's own metrics endpoint is still
-on `http://localhost:8090/metrics`, and the load generator's control API
-is still on `http://localhost:8089/`.
+authority — which is why every `curl` here carries `-k`. The worker's
+metrics endpoint is still `http://localhost:8090/metrics` and the load
+generator's control API is still `http://localhost:8089/`.
 
 Put the traffic into a steady state, because the analytics queue only has
 work when redirects are happening:
@@ -88,7 +85,8 @@ language and a collector. It has no tracing. The two overlap on exactly
 one thing — getting measurements out of a process — and every difficulty
 in this chapter lives in that overlap.
 
-There are three ways to bridge it.
+There are three ways to bridge it. Read the diagram as three different
+answers to "who initiates the transfer".
 
 ```text
 (A) your code ─OTel SDK─▶ Prometheus exporter ─/metrics─▶ scrape
@@ -96,7 +94,6 @@ There are three ways to bridge it.
 (C) your code ─OTel SDK─▶ Collector ─▶ remote write, or /metrics
 ```
 
-Read those as three different answers to "who initiates the transfer".
 In (A) Prometheus still pulls, and everything you know still applies. In
 (B) and (C) something else pushes, and the parts of Prometheus that
 depend on pulling stop working.
@@ -113,22 +110,23 @@ is the one most teams should reach for first.
 
 **Path B** is what this chapter builds. The SDK pushes OTLP straight into
 a receiver inside Prometheus. No collector, no exporter, one flag on the
-server.
+server. The OTLP exporter the worker uses for this,
+`go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp`, is
+pinned at **v1.44.0** and is stable — unlike its path-A sibling.
 
 **Path C** puts an OpenTelemetry Collector in the middle. It is the shape
 most production OTel deployments actually have, because the collector is
-where you batch, filter, add attributes, fan out to more than one backend
-and convert temporality. Grafana Alloy is a distribution of that same
-collector. Path C is out of scope here for one reason worth stating: the
-translation rules you are about to learn are *identical* in the collector
-and in Prometheus, because both import the same library —
-`github.com/prometheus/otlptranslator`, **v1.0.0**. Learn the rules once
-on path B and you know them for path C.
+where you batch, filter, fan out to more than one backend and convert
+temporality. Grafana Alloy is a distribution of that same collector. It
+is out of scope here for one reason worth stating: the translation rules
+you are about to learn are *identical* in the collector and in
+Prometheus, because both import `github.com/prometheus/otlptranslator`,
+**v1.0.0**. Learn them once on path B and you know them for path C.
 
 The `ch28` tag carries path B's server-side half. Prometheus runs with
-`--web.enable-otlp-receiver` from this chapter on, and the flag
-is off by default upstream for a blunt reason: Prometheus ships with no
-authentication, and this flag opens a write door.
+`--web.enable-otlp-receiver` from this chapter on. That flag is off by
+default upstream for a blunt reason: Prometheus ships with no
+authentication, and the flag opens a write door.
 
 ## Flip the switch
 
@@ -159,8 +157,8 @@ make up
 ```
 
 Now look at the worker's own metrics endpoint, the one Prometheus has
-been scraping since Chapter 8, "Aggregation: `sum`, `without`, and
-the Rate-Then-Aggregate Law":
+been scraping since Chapter 8, "Aggregation: `sum`, `without`, and the
+Rate-Then-Aggregate Law":
 
 ```console
 $ curl -s http://localhost:8090/metrics | grep snip_worker
@@ -168,10 +166,9 @@ $
 ```
 
 Nothing. Not an error, not an empty family, not a zero — the four
-families are not there at all. This is the first thing OTLP takes away
-from you, and it is worth sitting with for a moment. The endpoint still
-answers, because the process still registers `snip_build_info` and the Go
-runtime collectors on the default registry:
+families are not there at all. The endpoint still answers, because the
+process still registers `snip_build_info` and the Go runtime collectors
+on the default registry:
 
 ```bash
 curl -s http://localhost:8090/metrics | grep -c '^snip_build_info'
@@ -182,7 +179,7 @@ curl -s http://localhost:8090/metrics | grep -c '^snip_build_info'
 ```
 
 So the scrape still succeeds, and `up{job="snip-worker"}` is still 1.
-That is an accident of this lab's design, not a property of OTLP. The
+That is an accident of this lab's design, not a property of OTLP: the
 worker kept a pull endpoint because something else lives on it. A service
 that went OTLP-only would have no endpoint, no target, no scrape and
 therefore no `up` at all — and "a process that should be reporting and
@@ -191,28 +188,38 @@ has stopped" would become a question you can no longer ask directly.
 !!! trap "The doubled `v1`"
     The receiver's path is `/api/v1/otlp/v1/metrics`, and the repeated
     `v1` is not a misprint: `/api/v1/` is the Prometheus API version and
-    `/v1/metrics` is the OTLP signal path. The SDK-side *base* endpoint is
-    `http://prometheus:9090/api/v1/otlp`, and the SDK appends
-    `/v1/metrics` itself. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the full
-    path and the SDK appends again, producing
-    `/api/v1/otlp/v1/metrics/v1/metrics` — a 404 on every export, with
-    nothing in Prometheus and no error anywhere except the exporter's own
-    log. `lab/snip/otelmetrics.go` sidesteps this by passing the complete
-    URL through `otlpmetrichttp.WithEndpointURL`.
+    `/v1/metrics` is the OTLP signal path. The two standard endpoint
+    variables treat it differently. `OTEL_EXPORTER_OTLP_ENDPOINT` is a
+    base URL and the SDK appends `/v1/metrics` to it, so its correct
+    value here is `http://prometheus:9090/api/v1/otlp`. Give that
+    variable the full path instead and every export goes to
+    `/api/v1/otlp/v1/metrics/v1/metrics`, where the answer is:
+
+    ```text
+    404 page not found
+    ```
+
+    Nothing reaches Prometheus, nothing logs a complaint there, and the
+    only sign of trouble is in the exporter's own output. The
+    signal-specific `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` is used
+    exactly as given and needs the full path.
+    `lab/snip/otelmetrics.go` sidesteps the choice by passing a complete
+    URL through `otlpmetrichttp.WithEndpointURL` whenever neither
+    variable is set.
 
 ## The names changed
 
 Give it a minute. The OTel periodic reader exports every 15 seconds, the
 same cadence as the scrape, and the previously scraped `snip_worker_*`
 series get staleness markers at the first scrape that no longer carries
-them — the mechanism Chapter 2 described, doing exactly what it says.
+them — the mechanism Chapter 2, "What's Actually on the Wire", described.
 Then ask Prometheus what it now knows about the worker:
 
 ```bash
-curl -sk -u obslab:obslab \
+curl -sk -u obslab:obslab -G \
+  https://localhost:8443/prometheus/api/v1/query \
   --data-urlencode 'query=count by (__name__) (
       {__name__=~"snip_worker.*"})' \
-  https://localhost:8443/prometheus/api/v1/query \
   | jq -r '.data.result[] | .metric.__name__' | sort
 ```
 
@@ -240,8 +247,8 @@ m.Float64Gauge("snip.worker.last_success_timestamp",
 ```
 
 Four dotted names and two units went in; six classic Prometheus names
-came out. Those units are written in UCUM — the Unified Code for Units
-of Measure, a standard vocabulary of short unit codes that OpenTelemetry
+came out. Those units are written in UCUM — the Unified Code for Units of
+Measure, a standard vocabulary of short unit codes that OpenTelemetry
 adopted, in which `s` means seconds and `By` means bytes. Four rules did
 the transformation, and they are worth memorizing, because they are the
 rules you will be reversing in your head for the rest of your career.
@@ -262,41 +269,55 @@ rules you will be reversing in your head for the rest of your career.
    `..._total_bytes`. Histograms then add `_bucket`, `_sum` and `_count`
    on top of that, which is where six names came from four instruments.
 
-One more rule catches people out because it deletes rather than
-rewrites. UCUM lets you annotate a unit with a bracketed word that says
-what is being counted — `{packet}`, `{request}`, `{job}`. Those
-annotations **are dropped**, not translated. An UpDownCounter called
+One more rule catches people out because it deletes rather than rewrites.
+UCUM lets you annotate a unit with a bracketed word that says what is
+being counted — `{packet}`, `{request}`, `{job}`. Those annotations **are
+dropped**, not translated. An UpDownCounter called
 `http.server.active_requests` with unit `{request}` arrives as
 `http_server_active_requests`: no unit suffix, and no `_total`, because
 an UpDownCounter is not monotonic.
 
 Chapter 5, "Your First Counter: Instrumenting Code You Own", gave you a
-naming law — base units,
-`_total` on counters, unit before type — and warned that a name is a
-contract you cannot take back. The translation layer obeys that same law
-on your behalf. That is genuinely useful, and it is also the problem:
-**the name you query is not the name anybody wrote.** A grep through your
-own source for `http_server_request_duration_seconds` finds nothing.
+naming law — base units, `_total` on counters, unit before type — and
+warned that a name is a contract you cannot take back. The translation
+layer obeys that law on your behalf, which is useful and is also the
+problem: **the name you query is not the name anybody wrote.** A grep
+through your own source for `http_server_request_duration_seconds` finds
+nothing.
 
 ### Choosing how much translation you want
 
-The rules above are one of four named strategies, and all four live in
+Those four rules are one of four named strategies, and all four live in
 `prometheus/otlptranslator` v1.0.0. Prometheus's `otlp:` block selects
 one with `translation_strategy`.
 
-| Strategy | Escapes `.` | Adds suffixes |
+| Strategy | Escapes `.` | Adds unit and `_total` |
 |---|---|---|
 | `UnderscoreEscapingWithSuffixes` (default) | yes | yes |
 | `UnderscoreEscapingWithoutSuffixes` | yes | no |
 | `NoUTF8EscapingWithSuffixes` | no | yes |
 | `NoTranslation` | no | no |
 
+Here is the worker's histogram bucket series under each of the four, and
+there is one surprise in the list:
+
+```text
+UnderscoreEscapingWithSuffixes     snip_worker_job_duration_seconds_bucket
+UnderscoreEscapingWithoutSuffixes  snip_worker_job_duration_bucket
+NoUTF8EscapingWithSuffixes         snip.worker.job.duration_seconds_bucket
+NoTranslation                      snip.worker.job.duration_bucket
+```
+
+`_bucket` survives all four. "Without suffixes" means without the *unit*
+and `_total` suffixes; `_bucket`, `_sum` and `_count` are structural —
+they are how a classic histogram is represented at all, not decoration —
+so no strategy removes them.
+
 The bottom two keep your dotted names, which Prometheus 3 can store and
-query because UTF-8 names are allowed by default — at the cost of the
-quoted selector form Chapter 2, "What's Actually on the Wire", showed
-you: `{"snip.worker.jobs"}` rather than `snip_worker_jobs_total`. Every
-dashboard, rule and alert that touches such a metric has to be written
-that way too.
+query because UTF-8 names are allowed by default, at the cost of the
+quoted selector form Chapter 2 showed you: `{"snip.worker.jobs"}` rather
+than `snip_worker_jobs_total`. Every dashboard, rule and alert that
+touches such a metric has to be written that way too.
 
 `NoTranslation` in particular carries a warning in Prometheus's own
 documentation, and it is not the warning you expect. Beyond the awkward
@@ -312,28 +333,23 @@ specific reason not to.
 Now ask Prometheus about a metric name you never declared:
 
 ```bash
-curl -sk -u obslab:obslab \
-  --data-urlencode 'query=target_info' \
+curl -sk -u obslab:obslab -G \
   https://localhost:8443/prometheus/api/v1/query \
-  | jq -r '.data.result[].metric'
+  --data-urlencode 'query=target_info' \
+  | jq -c '.data.result[].metric'
 ```
 
 ```json
-{
-  "__name__": "target_info",
-  "instance": "b7c1d9f4a2e8",
-  "job": "snip-worker",
-  "service_instance_id": "b7c1d9f4a2e8",
-  "service_name": "snip-worker",
-  "service_version": "1.4.0"
-}
+{"__name__":"target_info","instance":"4f2a9c71b3de",
+"job":"snip-worker","service_instance_id":"4f2a9c71b3de",
+"service_name":"snip-worker","service_version":"1.4.0"}
 ```
 
 Your `instance` value will differ — it is the worker container's
 hostname, and Docker generates it. Everything else is fixed. The two
 `service_*` labels are there because this lab's `otlp:` block asks for
-them; a stock receiver would show `job`, `instance` and
-`service_version` only.
+them; a stock receiver would show `job`, `instance` and `service_version`
+only.
 
 !!! jargon "Resource"
     In OpenTelemetry, the **resource** is the set of attributes
@@ -403,20 +419,18 @@ every series as labels, sanitized the same way metric names are —
 stop needing a join for it; you also pay for it on every single series,
 so the list is a budget decision of exactly the kind Chapter 7, "Labels,
 and the Cardinality Arithmetic You Must Do First", taught you to make
-before rather than after. Note what this particular list buys: promoting
-the identifying attributes gives you `service_name` and
-`service_instance_id` alongside the `job` and `instance` that already
-carry the same two values. That is deliberate here so you can see both
-mechanisms at once. On your own stack, promote the attributes you would
-otherwise have to join for — a deployment environment, a cluster name, a
-version — and leave the identifiers to `job` and `instance`.
+before rather than after. This list promotes the identifying attributes,
+so `service_name` and `service_instance_id` sit next to the `job` and
+`instance` that already carry the same values — deliberate, so you can
+see both mechanisms at once. On your own stack, promote what you would
+otherwise have to join for and leave identity to `job` and `instance`.
 
 `keep_identifying_resource_attributes` decides what happens to the three
 identifying attributes — `service.name`, `service.namespace`,
 `service.instance.id` — on `target_info` itself. They are redundant there
 by default, because `job` and `instance` already carry them, so by
 default they are stripped. Setting it to `true` keeps them, which is why
-the output above shows both `job` and `service_name`.
+`target_info` carries both `job` and `service_name` in this lab.
 
 The full block has more keys than the lab uses. This is the complete set
 as of Prometheus 3.13.1:
@@ -435,36 +449,50 @@ otlp:
 ```
 
 `promote_all_resource_attributes` and `ignore_resource_attributes` are an
-allow-all-then-deny pair, and they are mutually exclusive with the
-promote list. `convert_histograms_to_nhcb` stores an incoming
-explicit-bucket histogram in the native histogram structure Chapter 10,
-"Latency: Histograms Without Tears", introduced, keeping the sender's own
-bucket boundaries rather than the exponential ones — NHCB stands for
-native histograms with custom buckets. `promote_scope_metadata` is where
-this chapter goes next.
+allow-all-then-deny pair, and Prometheus refuses to start if you mix them
+with the promote list. `make check` catches both before anything runs:
+
+```text
+'promote_all_resource_attributes' and
+'promote_resource_attributes' cannot be configured simultaneously
+
+'ignore_resource_attributes' cannot be configured unless
+'promote_all_resource_attributes' is true
+```
+
+`convert_histograms_to_nhcb` stores an incoming explicit-bucket histogram
+in the native histogram structure Chapter 10, "Latency: Histograms
+Without Tears", introduced, keeping the sender's own boundaries rather
+than the exponential ones — NHCB is native histograms with custom
+buckets. That leaves `promote_scope_metadata`, which is a section of its
+own.
 
 ### What the server cannot fix
 
 Compare the labels on the pushed series with the labels on
-`snip_build_info`, which the same process still exposes by scrape:
+`snip_build_info`, which the same process still exposes by scrape. The
+name filter matters: the recording rules you wrote in Chapter 15,
+"Recording Rules", also carry `job="snip-worker"` and deliberately have
+no `instance` at all, so without it they show up as a third population
+that has nothing to do with OTLP.
 
 ```bash
-curl -sk -u obslab:obslab \
-  --data-urlencode 'query=count by (instance, env) (
-      {job="snip-worker"})' \
+curl -sk -u obslab:obslab -G \
   https://localhost:8443/prometheus/api/v1/query \
+  --data-urlencode 'query=count by (instance, env) (
+      {job="snip-worker", __name__=~"snip_.*"})' \
   | jq -r '.data.result[] | .metric | "\(.instance) \(.env)"'
 ```
 
 ```text
 snip-worker-1 lab
-b7c1d9f4a2e8 null
+4f2a9c71b3de null
 ```
 
 One service, one job name, two populations. The scraped half has
 `instance="snip-worker-1"` and `env="lab"`, both of them minted by the
-seven relabel rules Chapter 12, "`prometheus.yml` in Full: Service Discovery and
-Relabeling", walked
+seven relabel rules in the `snip-worker` job that Chapter 12,
+"`prometheus.yml` in Full: Service Discovery and Relabeling", walked
 through. The pushed half has the container hostname and no `env` at all,
 because **OTLP does not go through the scrape pipeline**. No
 `relabel_configs`, no `metric_relabel_configs`, and — worth knowing after
@@ -474,21 +502,20 @@ door do not cover this door.
 
 The practical damage is that any join across the two halves returns
 nothing, because `on (job, instance)` cannot match `snip-worker-1`
-against `b7c1d9f4a2e8`. No config change fixes that: `instance` is
+against `4f2a9c71b3de`. No config change fixes that: `instance` is
 whatever `service.instance.id` says it is, and the only place to change
-it is the application. The honest repair is a one-line code change — give
-the resource the identity your monitoring system uses — and the honest
-observation is that you have just moved a deployment concern into a
-binary.
+it is the application. The repair is a one-line code change — give the
+resource the identity your monitoring system uses — and the honest
+observation is that a deployment concern has moved into a binary.
 
 ## Three labels you did not ask for
 
 Ask which label names the pushed series carry:
 
 ```bash
-curl -sk -u obslab:obslab \
-  --data-urlencode 'query=snip_worker_jobs_total' \
+curl -sk -u obslab:obslab -G \
   https://localhost:8443/prometheus/api/v1/query \
+  --data-urlencode 'query=snip_worker_jobs_total' \
   | jq -r '[.data.result[0].metric | keys[]] | join(" ")'
 ```
 
@@ -518,14 +545,14 @@ otlp:
   promote_scope_metadata: true
 ```
 
-`--config.auto-reload` has been on since Chapter 12, so this takes effect
-within seconds; `make reload` forces it immediately. Then wait five
-minutes before you re-run the query, and the reason is itself worth
-knowing. Adding a label does not rewrite the old series; it starts a new
-one beside it. The old series stops receiving samples, and because
-nothing scraped it, nothing writes it a staleness marker either — it
-merely falls out of the lookback window in its own time. Push has no
-mechanism for saying "this series is finished". Once it has aged out:
+`--config.auto-reload` has been on since Chapter 12 and polls every
+thirty seconds; `make reload` forces it immediately. Then wait five
+minutes before you re-run the label query, for a reason worth knowing.
+Adding a label does not rewrite the old series; it starts a new one
+beside it. The old series stops receiving samples, and because nothing
+scraped it, nothing writes it a staleness marker either — it falls out of
+the lookback window in its own time. Push has no way to say "this series
+is finished". Once it has aged out:
 
 ```text
 __name__ instance job otel_scope_name otel_scope_schema_url
@@ -548,7 +575,8 @@ Two queues, three outcomes: `snip_worker_jobs_total` is at most 6 series.
 `snip_worker_queue_depth` and `snip_worker_last_success_timestamp_seconds`
 are 2 each. The histogram has eight finite buckets plus `+Inf`, plus
 `_sum` and `_count`, which is 11 per queue, so 22. Six plus two plus two
-plus twenty-two is **32**.
+plus twenty-two is **32**, and 32 is what a worker that has run every
+queue to every outcome reports.
 
 You may count fewer, and the reason is worth knowing: an OTel counter has
 no way to pre-create a label combination that has not happened yet, so
@@ -557,30 +585,37 @@ no way to pre-create a label combination that has not happened yet, so
 startup. That guarantee does not survive the switch.
 
 Whatever number you get, it is also the number you would have got before
-you added `promote_scope_metadata`. Exercise 2 asks you to prove that.
-
-Scope labels do not multiply cardinality. Every series belongs to exactly
-one scope, so adding the scope to its identity cannot split it in two.
-What the three labels actually cost is paid per series rather than in
-series: more bytes in the head block and in the index for every one of
-them, longer label sets on the wire, noisier legends in every panel, and
-one genuine trap. Chapter 8 recommended `without` over `by` as the
-default habit, precisely because `without` keeps dimensions you have not
-met yet instead of silently dropping them. Its own worker query was:
+you added `promote_scope_metadata`. Scope labels do not multiply
+cardinality. Every series belongs to exactly one scope, so adding the
+scope to its identity cannot split it in two:
 
 ```promql
-sum without (instance) (rate(snip_worker_jobs_total{
-  job="snip-worker"}[5m]))
+count(count by (otel_scope_name, otel_scope_version,
+                otel_scope_schema_url) (snip_worker_jobs_total))
 ```
 
-Run that now and it still returns a number, and the number is still
-wrong in a way no error will tell you about. You asked to aggregate the
-`instance` label away. `service_instance_id` holds the very same value,
-you did not name it, and `without` keeps what it was not told to drop —
-so the result is still per-instance. With two worker containers you
-would get two series out of a query written to combine them. The habit
-that protected you in Chapter 8 is the habit that catches you here.
-Either name everything:
+That returns `1`, and it will return `1` for most services you ever
+operate. What the three labels actually cost is paid per series rather
+than in series: more bytes in the head block and in the index for every
+one of them, longer label sets on the wire, noisier legends in every
+panel, and one genuine trap. Chapter 8 recommended `without` over `by` as
+the default habit, precisely because `without` keeps dimensions you have
+not met yet instead of silently dropping them. Its own worker query was:
+
+```promql
+sum without (instance) (
+  rate(snip_worker_jobs_total{job="snip-worker"}[5m])
+)
+```
+
+Run that now and it still returns a number, and on a second worker
+container the number would be wrong in a way no error tells you about.
+You asked to aggregate the `instance` label away. `service_instance_id`
+holds the very same value, you did not name it, and `without` keeps what
+it was not told to drop — so the result is still per-instance. Two
+containers would give you twelve series out of a query written to return
+six. The habit that protected you in Chapter 8 is the habit that catches
+you here. Either name everything:
 
 ```promql
 sum without (instance, service_instance_id, otel_scope_name,
@@ -592,12 +627,11 @@ or switch to `by (queue, outcome)`, which is unaffected. On metrics that
 arrive over OTLP, `by` is the safer default — one of the few places in
 this subject where the standard advice reverses.
 
-So: are the scope labels worth it? They are genuinely useful when two
+So: are the scope labels worth it? They earn their keep when two
 libraries in one process emit the same metric name and you need to tell
-them apart — that is what they exist for. In a service with one scope,
-which is most services, they are three labels of pure overhead on every
-series. Prometheus makes that your decision, and having now measured both
-sides of it, you can make it.
+them apart. In a service with one scope, which is most services, they
+are three labels of pure overhead. Prometheus makes that your decision,
+and you have now measured both sides of it.
 
 ## Cumulative and delta
 
@@ -609,8 +643,8 @@ spelling is temporality.
     How a counter reports. A **cumulative** counter reports its running
     total since the process started; the value 4,812 means "4,812 since
     I booted". A **delta** counter reports only what happened since the
-    previous export; the value 37 means "37 in the last fifteen seconds".
-    Prometheus is cumulative, everywhere, by design — `rate()`,
+    previous export; the value 37 means "37 in the last fifteen
+    seconds". Prometheus is cumulative, everywhere, by design — `rate()`,
     `increase()` and counter-reset detection all assume it.
 
 The difference is not a preference, it is a durability property. A missed
@@ -620,27 +654,74 @@ export is gone permanently, because nothing afterwards restates it. That
 is why Prometheus scrapes cumulative counters and why `rate()` over
 deltas is arithmetic nonsense.
 
-The happy path needs no configuration. `go.opentelemetry.io/otel/sdk/metric`
-v1.44.0 uses cumulative temporality for every instrument kind by default,
-so the worker you just switched over is already speaking the right
-dialect. The lab did nothing to arrange this, and the chapter would be
-much shorter if the default ran the other way.
+The happy path needs no configuration.
+`go.opentelemetry.io/otel/sdk/metric` v1.44.0 uses cumulative temporality
+for every instrument kind by default, so the worker you switched over a
+moment ago is already speaking the right dialect. The lab did nothing to
+arrange this, and the chapter would be much longer if the default ran the
+other way.
 
-!!! pitfall "The metric that was there yesterday"
-    Someone sets `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`
-    because a different backend wanted it — that is the documented,
-    supported way to ask an OTel exporter for deltas, and several SDKs and
-    vendor pipelines default to it. Point that exporter at Prometheus and
-    the delta metrics are **dropped** by default. Not rejected loudly, not
-    stored wrong: absent. The OTel compatibility spec permits exactly
-    this, saying delta histograms may be converted to cumulative *or must
-    be dropped*, and the collector's own `prometheusremotewriteexporter`
-    documentation states plainly that non-cumulative monotonic, histogram
-    and summary metrics are dropped. Your dashboard goes blank and the
-    only clue is that nobody configured anything called "drop".
+You can see what the other way looks like without touching the worker.
+Hand-build one OTLP data point that declares delta temporality —
+`aggregationTemporality` is `1` for delta and `2` for cumulative — and
+post it to the receiver yourself:
+
+```bash
+cat > /tmp/delta.json <<EOF
+{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name",
+"value":{"stringValue":"delta-probe"}}]},"scopeMetrics":[{"metrics":[
+{"name":"delta.probe.jobs","sum":{"aggregationTemporality":1,
+"isMonotonic":true,"dataPoints":[
+{"timeUnixNano":"$(date +%s)000000000","asDouble":5}]}}]}]}]}
+EOF
+```
+
+```bash
+curl -sk -u obslab:obslab -X POST -w '\nHTTP %{http_code}\n' \
+  -H 'Content-Type: application/json' --data-binary @/tmp/delta.json \
+  https://localhost:8443/prometheus/api/v1/otlp/v1/metrics
+```
+
+```text
+invalid temporality and type combination for metric "delta.probe.jobs"
+
+HTTP 500
+```
+
+Change `"aggregationTemporality":1` to `2` and the same request returns
+`HTTP 200` with an empty body. Prometheus also writes a line of its own,
+which you can see with `docker compose logs prometheus`:
+
+```text
+time=2026-10-31T14:46:32.864Z level=ERROR
+source=write_otlp_handler.go:184 msg="Error appending remote write"
+component=web err="invalid temporality and type combination for
+metric \"delta.probe.jobs\""
+```
+
+So Prometheus's own receiver is not quiet about delta. It is something
+worse and more useful: it is **strict**. The rejection is per *request*,
+not per metric. One delta data point anywhere in an export fails the
+whole POST, and every cumulative metric that shared that request is lost
+with it — which is exactly the shape of a bug report that reads "half our
+metrics vanished when we added one new instrument".
+
+!!! pitfall "The quiet version of the same mistake"
+    Someone sets `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` to
+    `delta` because a different backend wanted it — the documented,
+    supported way to ask an OTel exporter for deltas, and the default in
+    several SDKs and vendor pipelines. Send that through path C instead
+    of path B and nobody returns a 500 to anyone. The compatibility spec
+    says delta histograms *may* be converted to cumulative **or must be
+    dropped**, and the Collector's `prometheusremotewrite` exporter
+    takes the second option: non-cumulative monotonic, histogram and
+    summary points are dropped on the way out. Your dashboard goes
+    blank, the sender reports success, and the only clue is that nobody
+    configured anything called "drop". Prometheus shouts; a collector in
+    front of it does not.
 
 Prometheus has two recoveries, both experimental and **mutually
-exclusive** — enabling both is a startup error:
+exclusive**:
 
 - `--enable-feature=otlp-deltatocumulative` converts deltas to cumulative
   as they arrive, keeping the running totals in server memory. A restart
@@ -649,32 +730,59 @@ exclusive** — enabling both is a startup error:
   `rate()` is then wrong on them; the documented shape is
   `sum_over_time(m[5m])`.
 
-The better fix is upstream: set cumulative in the SDK, or convert in the
-collector with its `deltatocumulative` processor. Configure the producer
-rather than teaching the database a second dialect.
+Either one turns that `HTTP 500` into `HTTP 200`. Asking for both is a
+startup error, and Prometheus says so in as many words — `cannot enable
+otlp-deltatocumulative and otlp-native-delta-ingestion features at the
+same time` — before it binds a port. The better fix is upstream: set
+cumulative in the SDK, or convert in the collector with its
+`deltatocumulative` processor. Configure the producer rather than
+teaching the database a second dialect.
 
-One related setting belongs here because push makes it necessary.
-Chapter 25 named `storage.tsdb.out_of_order_time_window` and left it at
-zero. A scrape arrives in order by construction — one scraper, one
-timeline. Pushes do not: two collector replicas, a retry after a network
-stall, or a batch flushed late all arrive out of order, and Prometheus
-rejects out-of-order samples unless you open a window:
+### The window push makes necessary
+
+Chapter 25 named `storage.tsdb.out_of_order_time_window`, left it at
+zero, and said this chapter would turn it on. Here is why. A scrape
+arrives in order by construction — one scraper, one timeline, one sample
+per interval per series. Pushes do not. Two collector replicas, a retry
+after a network stall, or a batch flushed late all arrive out of order,
+and at zero Prometheus rejects any sample older than the newest one in
+its series. Add one line to the `storage.tsdb` block that has carried the
+retention settings since Chapter 25:
 
 ```yaml
 storage:
   tsdb:
     out_of_order_time_window: 30m
+    retention:
+      time: 45d
+      size: 2GB
 ```
 
-The lab does not set it, because exactly one sender pushes exactly one
-series set on a 15-second timer. Add it the moment a second pusher
-appears.
+Reload with `make reload`. Nothing is logged when a window opens, so read
+it back from the server rather than from your own file:
+
+```bash
+curl -sk -u obslab:obslab \
+  https://localhost:8443/prometheus/api/v1/status/config \
+  | jq -r '.data.yaml' | grep order
+```
+
+```text
+    outofordertimewindow: 1800000
+    out_of_order_time_window: 30m
+```
+
+The server reports it twice: once under an internal field name in
+milliseconds, and once as you wrote it. Before the edit there is a
+single line reading `outofordertimewindow: 0`. One sender on a timer
+never needs this window, which is why the lab ships without it; open it
+the moment a second pusher appears.
 
 ## The honest verdict
 
 Julius Volz, who co-founded Prometheus, published a position in July 2025
 titled "Why I recommend native Prometheus instrumentation over
-OpenTelemetry". It is a position and not documentation, and it is worth
+OpenTelemetry". It is a position, not documentation, and it is worth
 taking seriously because every one of its six friction points is
 something you have now seen on your own machine.
 
@@ -687,9 +795,9 @@ something you have now seen on your own machine.
 4. **Server configuration burden.** A flag to enable the receiver, an
    `otlp:` block to make the labels usable, and an out-of-order window
    once there is more than one sender.
-5. **Performance.** He reports the Prometheus Go client somewhere
-   between roughly 4.4 and 26 times faster at counter increments,
-   depending on the case, with zero allocations where OTel allocates.
+5. **Performance.** He reports the Prometheus Go client somewhere between
+   roughly 4.4 and 26 times faster at counter increments, depending on
+   the case, with zero allocations where OTel allocates.
 6. **Redundant standardization.** The Prometheus text format is trivial
    to implement, and it already had an ecosystem.
 
@@ -706,7 +814,7 @@ nothing between your code and your query to misconfigure.
     instrumentation you do not have to write; and vendor portability,
     since the same SDK can point anywhere. If your organization has
     already standardized on OTel, re-instrumenting for Prometheus is the
-    wrong fight. The counterweight is maturity: the collector is still
+    wrong fight. The counterweight is maturity: the Collector is still
     **v0.157.0** — there is no Collector 1.0 — and stability is declared
     per component rather than for the distribution.
 
@@ -720,14 +828,14 @@ alert on them.
 
 ## Putting the lab back
 
-Leave `SNIP_OTEL=1` on while you run the self-check below and work
-through the exercises, then put it
-back. The shipped stack runs the worker on `client_golang` on purpose:
-the OTLP path has no way to pre-initialize a counter's label values, so
-the zero-initialization guarantee that Chapter 9, "Ratios, Arithmetic,
-and the Series That Isn't There", and Chapter 16's alerting rules both
-rest on does not hold while the switch is on, and `SNIP_NO_ZERO_INIT`
-becomes a no-op on the worker.
+Run the self-check and the exercises with `SNIP_OTEL=1` still on, then
+put it back. The shipped stack runs the worker on `client_golang` on
+purpose: the OTLP path cannot pre-initialize a counter's label values,
+so while the switch is on, `SNIP_NO_ZERO_INIT` becomes a no-op on the
+worker and the zero-initialization guarantee underneath Chapter 9,
+"Ratios, Arithmetic, and the Series That Isn't There", and the alerting
+rules of Chapter 16, "Alerting Rules, and What 'Firing' Actually
+Means", does not hold.
 
 ```ini
 SNIP_OTEL=0
@@ -737,6 +845,10 @@ SNIP_OTEL=0
 make up
 ```
 
+Your two edits to `lab/prometheus/prometheus.yml` are yours to keep.
+`git checkout ch28 -- prometheus/prometheus.yml` puts the shipped file
+back if you would rather go on from that.
+
 !!! selfcheck "Self-check"
     With `SNIP_OTEL=1` and `promote_scope_metadata: true` in place, run
     `make verify-ch28`. It asserts six things: `snip_worker_jobs_total`
@@ -745,41 +857,43 @@ make up
     `instance`; and `snip-api`'s series carry no `otel_scope_*` labels,
     because `snip-api` never left `client_golang`. With all six true it
     prints `ch28 OK`. This is the one verify target that needs you to
-    turn a switch on first — with `SNIP_OTEL=0` it fails at the first
-    assertion, and that is correct behavior, not a broken lab.
+    turn two switches on first — with `SNIP_OTEL=0` it fails at the
+    first assertion, and with the scope line missing it fails at the
+    second. Both failures are correct behavior, not a broken lab, and
+    the script's own hints name both switches.
 
 ## Common mistakes
 
-**Querying the name you wrote.** You search the Metrics Explorer for
-`snip.worker.jobs`, find nothing, and conclude the push is not working.
-The push is working; the name is `snip_worker_jobs_total`. Before
-debugging an OTLP pipeline, run `count by (__name__)` over a generous
-regex and read what actually arrived.
+**Querying the name you wrote.** You search the Metrics Explorer on the
+Query page for `snip.worker.jobs`, find nothing, and conclude the push is
+not working. The push is working; the name is `snip_worker_jobs_total`.
+Before debugging an OTLP pipeline, run `count by (__name__)` over a
+generous regex and read what actually arrived.
 
 **Reading `up` as "the pusher is alive".** In this lab
 `up{job="snip-worker"}` stays 1 while `SNIP_OTEL=1`, which makes it look
-like OTLP preserves
-target health. It does not. That `up` describes a scrape of an endpoint
-that no longer carries the four families. If the OTel exporter stopped
-pushing this instant, `up` would not move. Alert on the data instead —
-`absent_over_time()` or the staleness of
-`snip_worker_last_success_timestamp_seconds` — exactly as Chapter 9,
-"Ratios, Arithmetic, and the Series That Isn't There", showed.
+like OTLP preserves target health. It does not — that `up` describes a
+scrape of an endpoint that no longer carries the four families, and if
+the exporter stopped pushing this instant it would not move. Alert on the
+data instead, with `absent_over_time()` or the staleness of
+`snip_worker_last_success_timestamp_seconds`, exactly as Chapter 9
+showed.
 
 **Assuming relabeling still runs.** Pushed series have no `env`, no
-renamed `instance`, and none of your `metric_relabel_configs` drops. If
-you need a label on OTLP data, it has to come from the resource, from the
-`otlp:` block, or from a collector in front.
+renamed `instance`, and none of your `metric_relabel_configs` drops. A
+label on OTLP data has to come from the resource, from the `otlp:` block,
+or from a collector in front.
 
 **Reaching for `NoTranslation` to keep your names.** It works, and then
 every selector needs the quoted form, every dashboard and rule has to be
 rewritten, and Prometheus's own documentation warns about silent series
 collisions. Keep the default and explain the suffixes to your team once.
 
-**Leaving temporality to chance.** If any part of the pipeline was ever
-configured for a delta-native backend, verify which metrics arrive rather
-than assuming. Data loss here is silent by design, and a missing
-histogram looks exactly like a service that has gone quiet.
+**Blaming the new instrument.** An export carrying one delta data point
+fails in its entirety, so the symptom of adding a single
+delta-temporality metric is that *all* of that service's metrics stop.
+The new instrument is the cause but not the victim, and looking only at
+the series that disappeared will not find it.
 
 ## Summary
 
@@ -790,27 +904,29 @@ component; OTLP pushed into Prometheus's receiver behind
 translation rules are identical on all of them, because they are one
 library.
 
-You flipped a single environment variable, watched four metric families
-vanish from a `/metrics` endpoint and reappear in the database under
-different names, found the resource hiding in `target_info`, priced three
-scope labels that turned out to cost nothing in cardinality and something
-real in everything else, and saw one service split into two `instance`
-populations that no PromQL join can bridge.
+You flipped one environment variable, watched four metric families vanish
+from a `/metrics` endpoint and reappear in the database under different
+names, found the resource hiding in `target_info`, priced three scope
+labels that cost nothing in cardinality and something real in everything
+else, and saw one service split into two `instance` populations that no
+PromQL join can bridge.
 
 - Dots become underscores, UCUM units become words, monotonic sums gain
   `_total`, the unit suffix comes before the type suffix, and bracketed
-  annotations like `{packet}` are dropped entirely.
+  annotations like `{packet}` are dropped entirely. `_bucket`, `_sum` and
+  `_count` are structural and survive every translation strategy.
 - The resource becomes `target_info`, a value-1 gauge you join against;
   `service.namespace`/`service.name` become `job` and
   `service.instance.id` becomes `instance`.
 - `promote_resource_attributes` trades a join for a label on every
   series. `keep_identifying_resource_attributes` governs `target_info`
-  only. Scope metadata is off by default on Prometheus's receiver and on
-  by default in the SDK's Prometheus exporter.
+  only. Scope metadata is off by default on Prometheus's receiver, on by
+  default in the SDK's Prometheus exporter, and costs no series either
+  way.
 - Prometheus is cumulative-only and the OTel SDK default is cumulative,
-  so the happy path is free — and delta data is dropped silently, which
-  makes it the first thing to check when a metric is absent rather than
-  wrong.
+  so the happy path is free. A delta point sent to Prometheus's own
+  receiver fails the whole request with an HTTP 500; the same point sent
+  through a collector is dropped without complaint.
 - OTLP bypasses the scrape pipeline completely: no relabeling, no scrape
   limits, no `up`, and target identity moves from your configuration into
   your application code.
@@ -818,39 +934,41 @@ populations that no PromQL join can bridge.
 ## Exercises
 
 !!! exercise
-    **1. Three names from one histogram (warm-up).** An OTel Histogram named
-    `http.server.request.duration` carries unit `s`. Write down its three
-    Prometheus series names before you look anything up, then check your
-    answer against the worker's own `snip.worker.job.duration`, which has
-    the same type and the same unit and is already in your database.
+    **1. Three names from one histogram (warm-up).** An OTel Histogram
+    named `http.server.request.duration` carries unit `s`. Write down its
+    three Prometheus series names before you look anything up, then check
+    your answer against the worker's own `snip.worker.job.duration`,
+    which has the same type and the same unit and is already in your
+    database.
 
-    **2. What the scope labels cost (core).** Count the four worker families
-    with `count({__name__=~"snip_worker.*"})`. Remove
-    `promote_scope_metadata: true` again, reload, wait five minutes for the
-    old series to age out of the lookback window, and count again. How many
-    series did the scope labels cost? Then explain in one sentence what they
-    do cost, and name a situation in which you would pay it gladly.
+    **2. What the scope labels cost (core).** Count the four worker
+    families with `count({__name__=~"snip_worker.*"})`. Remove
+    `promote_scope_metadata: true` again, reload, wait five minutes for
+    the old series to age out of the lookback window, and count again.
+    State the difference in series, then say in one sentence what the
+    three labels do cost and name a situation in which you would pay it
+    gladly.
 
-    **3. Switch to delta temporality (stretch).** The Go OTLP metric
-    exporter reads `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`. Add
-    it with the value `delta` to `snip-worker`'s `environment:` block in
-    `lab/compose.yaml`, run `make up`, and wait two export intervals. Record
-    which of the six names still receive new samples and which stop, and
-    what — if anything — `docker compose logs snip-worker` and `docker
-    compose logs prometheus` have to say about it. Then take the line out
-    again.
+    **3. One delta point, many casualties (stretch).** Take the
+    hand-built OTLP payload from this chapter and add a second metric to
+    the same request — a cumulative gauge, any name you like. Predict
+    what the receiver does with the request, then send it and check
+    whether your gauge arrived. Now set `"aggregationTemporality":2` on
+    the first metric and send it again. Write down the rule you proved,
+    in one sentence, and say which of Prometheus's two delta
+    feature flags you would reach for and why you would rather not.
 
     **4. One query, both worlds (core).** Write a PromQL expression that
-    reports the worker's job rate per queue and returns exactly two series
-    in both worlds — the scraped one and the pushed one. Flip `SNIP_OTEL`
-    twice and watch it on a graph. State which of `by` and `without` you
-    used and why the other one fails, and say what the graph does in the
-    half-minute after each flip, while both populations are still inside the
-    lookback window.
+    reports the worker's job rate per queue and returns exactly two
+    series in both worlds — the scraped one and the pushed one. Flip
+    `SNIP_OTEL` twice and watch it on a graph. State which of `by` and
+    `without` you used, why the other one fails, and what the graph does
+    in the half-minute after each flip while both populations are still
+    inside the lookback window.
 
     **5. Your team's recommendation (core).** Write the two-sentence
-    recommendation you would give your own team about OpenTelemetry and
-    Prometheus. Then take Volz's six friction points in turn and say, for
-    each, whether your recommendation survives it, mitigates it, or accepts
-    it. A recommendation that accepts none of the six is not a
-    recommendation, it is a preference.
+    recommendation you would give your own team. Then take Volz's six
+    friction points in turn and say, for each, whether your
+    recommendation survives it, mitigates it, or accepts it. A
+    recommendation that accepts none of the six is not a recommendation,
+    it is a preference.

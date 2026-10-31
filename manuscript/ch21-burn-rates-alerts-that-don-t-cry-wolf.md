@@ -7,10 +7,11 @@ you start spending it.
 
 Try it and watch what happens. You write one rule that fires whenever the error
 ratio exceeds 0.5 %, and on Tuesday morning it pages you at 09:02 for a
-forty-second blip that cost eleven seconds of the 216. You add `for: 15m` to
-calm it down, and on Thursday a real outage runs for nineteen minutes with two
-healthy evaluations in the middle, and nobody is woken at all. By Friday the
-rule is commented out, and Snip is unmonitored again with a straight face.
+forty-second blip in which one redirect in four failed — ten seconds out of the
+216. You add `for: 15m` to calm it down, and on Thursday a real outage runs for
+nineteen minutes with two healthy evaluations in the middle, and nobody is woken
+at all. By Friday the rule is commented out, and Snip is unmonitored again with
+a straight face.
 
 This chapter fixes that, and it fixes it by arithmetic rather than by taste. You
 will replay six approaches in the order the industry actually discovered them,
@@ -41,11 +42,14 @@ seven-day window when somebody hands you one.
 Everything here runs against the stack as Chapter 20, "SLIs, SLOs and Error
 Budgets", left it: `docs/SLO.md` declaring the two objectives, and
 `lab/prometheus/rules/snip-recording.yml` carrying the windowed SLI ladder that
-chapter built. The `ch21` tag already holds the finished `snip-burnrate.yml`, guards
-included, its test file and the new inhibit rule, with `SnipHighErrorRatio` already
-deleted — read along with those. To build them yourself, check out `ch20` instead; the
-steps in this chapter start there, which is why the low-traffic test fails the first time you run
-it.
+chapter built.
+
+There are two ways to work through what follows. Check out `ch21` and you get
+the finished state to read along with: `snip-burnrate.yml` with its four tiers
+and their guards, the test file, the new inhibit rule, and `SnipHighErrorRatio`
+already deleted. Check out `ch20` and you build all of it yourself, in the order
+this chapter writes it — which is the order in which the low-traffic test fails
+before it passes, and that failure is the point of the exercise.
 
 ```bash
 cd lab
@@ -85,8 +89,8 @@ read `> threshold` where yours read `1 - x > threshold`. Copy one convention's
 expression onto the other convention's metric name and you have inverted the
 alert without changing a single number.
 
-The third is the budget: `1 - 0.995 = 0.005`. Every threshold below is that
-number multiplied by something.
+The third is the budget: `1 - 0.995 = 0.005`. Every threshold in this chapter
+is that number multiplied by something.
 
 ## Approach 1 — alert on the objective itself
 
@@ -103,7 +107,7 @@ Give it a background to work against. Start the drip scenario, which drives
 ./scripts/scenario-drip.sh --no-wait
 ```
 
-Within about five minutes the expression above returns a series with a value
+Within about five minutes that expression returns a series with a value
 near `0.01`, and it keeps returning it for as long as the drip runs. Turn it
 into an alert with no `for:` and it pages immediately, then pages again on every
 repeat interval, for the whole hour.
@@ -114,9 +118,10 @@ genuine problem and a genuinely slow one. It deserves a ticket on Monday. It
 does not deserve a human being awake at 04:00, and any rule that cannot tell
 those two apart will be silenced within a week.
 
-The flaw has a name: **precision**. The rule is perfectly sensitive — it catches
-everything — and almost worthless at telling you whether what it caught matters.
-Stop the drip before moving on:
+The flaw has a name. **Precision** — the share of alerts that turn out to
+matter — is terrible here: the rule is perfectly sensitive, catching every real
+problem, and almost worthless at telling you whether what it caught deserved a
+human. Stop the drip before moving on:
 
 ```bash
 curl -s -XPOST http://localhost:8089/chaos/reset
@@ -133,27 +138,36 @@ The instinct is to look at more time. The ladder already has a one-day rung:
 This is better. A forty-second blip is one part in 2,160 of a day, so it cannot
 move the number far enough to trip anything. Precision improves.
 
-What breaks instead is **reset time**. Run the fifteen-minute outage and then
-watch the two windows next to each other on one graph — the five-minute rung and
-the one-day rung:
+What breaks instead is **reset time**. Start the outage and then watch the two
+windows next to each other on one graph — the five-minute rung and the one-day
+rung:
 
 ```bash
-DURATION=900 ./scripts/scenario-outage.sh
+./scripts/scenario-outage.sh --no-wait
 ```
+
+`--no-wait` starts the injection and hands you back the prompt; it runs until
+you reset it with `POST /chaos/reset`, so it ends when you say so and not on a
+timer.
 
 ```promql
 1 - job:snip_sli_availability:ratio_rate5m{job="snip-api"}
 ```
 
 The five-minute line climbs to about 0.30, holds while the outage runs, and is
-back at zero five minutes after it ends. The one-day line barely moves — and
-whatever it moved to, **it stays there until tomorrow**, because a fifteen-minute
-outage sits inside a twenty-four-hour window for twenty-four hours. Your alert
+back at zero five minutes after you reset it. The one-day line barely moves —
+and whatever it moved to, **it stays there until tomorrow**, because a quarter
+of an hour of outage sits inside a twenty-four-hour window for twenty-four
+hours. Your alert
 fires long after you have fixed the problem, and there is nothing you can do
 about it except wait for the calendar.
 
 An alert that will not clear is worse than a noisy one. People learn to ignore
-it, and then they ignore the next one.
+it, and then they ignore the next one. Stop the outage before moving on:
+
+```bash
+curl -s -XPOST http://localhost:8089/chaos/reset
+```
 
 ## Approach 3 — a short window with a long `for:`
 
@@ -170,17 +184,18 @@ and demand that it stay bad for an hour:
 
 Chapter 16, "Alerting Rules, and What 'Firing' Actually Means", proved on your
 own screen why this does not work. `for:` requires the condition to be true at
-**every single evaluation** in the interval. At a 30-second evaluation interval,
-an hour is 120 consecutive evaluations, and one healthy one anywhere in that
-hour throws the whole clock away and starts it again from zero. Chapter 16's
-`scenario-flap.sh` produced a signal that was bad half the time for ten minutes
-and never left `inactive`.
+**every single evaluation** in the interval — 120 of them in an hour at a
+30-second interval — and one healthy evaluation anywhere in that hour throws the
+clock away and starts it again from zero. Chapter 16's ninety-minute outage with
+one healthy evaluation at minute 50 produced a fifty-minute `pending` run, then
+a forty-minute one, and fired nothing at all. Not late — never.
 
 `for:` is a debounce on a switch. It suppresses brief self-correcting nonsense,
 which is a real and useful job. It is not a measurement of how long something
 has been broken, and the longer you make it the more fragile it gets, because
-you have handed more evaluations the chance to spoil it. The SRE literature
-rejects this approach by name, and so should you.
+you have handed more evaluations the chance to spoil it. Google's *Site
+Reliability Engineering* workbook rejects this approach by name, and so should
+you.
 
 Three approaches in, and each one traded a flaw for a different flaw. The reason
 is that all three are asking the wrong question. They ask *how bad is it right
@@ -289,8 +304,10 @@ or
   > (6 * 0.005)
 ```
 
-Recall improves: fast burns and slow burns both get caught, by the tier suited
-to each. But reset time has not improved at all — the six-hour clause stays true
+**Recall** — the share of real problems the rule actually catches — improves:
+fast burns and slow burns are both caught, each by the tier suited to it. A
+single tier had to choose. But reset time has not improved at all — the
+six-hour clause stays true
 for six hours after recovery — and you now have several windows and several
 thresholds to reason about at once.
 
@@ -338,15 +355,15 @@ sixty instead and the alert will flap on any service quiet enough to have gaps.
 | 3 — ticket | 1 d / 2 h | 3 | 1.5 % |
 | 4 — ticket | 3 d / 6 h | 1 | 0.5 % |
 
-You will find a great many copies of this table on the internet with only three
-rows — the 1 d / 2 h tier at burn rate 3 missing. That three-row version is real:
-it is the recommended-parameters *table* in the SRE workbook. The workbook's own
-Approach-6 *example code*, a few paragraphs earlier in the same chapter, has
-four. Every mainstream implementation followed the code rather than the table:
-Sloth's shipped window catalog has four tiers, Pyrra has four, and Grafana
-Cloud's SLO alerting pairs the same four burn rates into two alerts. Use four.
-The missing tier is the one that catches a 1.5 % error ratio, which is three
-times your budget and completely invisible to the other three.
+You will find a great many copies of this table with only three rows — the
+1 d / 2 h tier at burn rate 3 missing. That version is real: it is the
+recommended-parameters *table* in the SRE workbook. The workbook's own
+Approach-6 *example code*, earlier in the same chapter, has four, and the
+implementations followed the code: Sloth ships four tiers, Pyrra ships four, and
+Grafana Cloud's SLO app folds the same four into a fast-burn alert and a
+slow-burn one. Use four. The missing tier is the one that catches a 1.5 % error
+ratio, which is three times your budget and completely invisible to the other
+three.
 
 ## Two numbers that fall out for free
 
@@ -383,7 +400,15 @@ non-engineer can answer and a question you can defend in a review.
 
 The same model predicts detection time. The long window is a rolling average, so
 after *t* minutes of an incident that is *B* times over budget, the window reads
-`t / W` of the way toward *B*. It crosses the threshold when
+`t / W` of the way toward *B*. Set that equal to the threshold and solve for
+*t*:
+
+```text
+    (t / W) × B = threshold
+            t   = W × threshold / B
+```
+
+which is the same rearrangement you did for the threshold, run the other way:
 
 ```text
     detection time = long_window × threshold / actual_burn_rate
@@ -391,7 +416,7 @@ after *t* minutes of an incident that is *B* times over budget, the window reads
 
 Two assumptions are hiding in that line and you should know both. It assumes the
 window was clean before the incident started, and it assumes the request rate
-does not change. Neither is always true, and the next section is where you watch
+does not change. Neither is always true, and the live outage is where you watch
 one of them break.
 
 The formula also has nothing to say when the actual burn rate is *below* the
@@ -400,9 +425,10 @@ alert correctly declining to fire.
 
 ## Writing the four rules
 
-Create `lab/prometheus/rules/snip-burnrate.yml`. Start with the first tier, and
-leave out the minimum-events guard for now — you are going to discover why it
-exists rather than being told.
+Create `lab/prometheus/rules/snip-burnrate.yml` — or, reading along on `ch21`,
+open the file that is already there and read it in this order. Start with the
+first tier, and leave out the minimum-events guard for now: you are going to
+discover why it exists rather than being told.
 
 ```yaml
 groups:
@@ -441,8 +467,18 @@ groups:
 
 There is a fifth annotation in the shipped file, `runbook_url`, built
 mechanically from the lowercased alert name exactly as Chapter 19, "What a Page
-Should Say, and Who Watches the Watcher", specified. It is too long for a printed
-line; read it in the repository.
+Should Say, and Who Watches the Watcher", specified. A folded scalar keeps it
+inside the line length:
+
+```yaml
+          runbook_url: >-
+            https://runbooks.example.com/obslab/snipavailabilityburnfast
+```
+
+The other three are that URL with their own lowercased names. Be honest about
+where they point: `docs/runbooks/` holds four pages and not one of them is for a
+burn tier, and Chapter 19's rule was that a missing runbook is a bug against the
+alert. Write the two paging tiers' pages before any of this goes on call.
 
 Four details in that block are decisions rather than typing.
 
@@ -451,11 +487,10 @@ reads. An alert cannot be fresher than the series underneath it, and evaluating
 the alert twice as often as the series it consumes only means evaluating the same
 sample twice.
 
-`for: 2m` is a debounce and nothing more. It exists so that a single strange
-evaluation does not page anybody. The short window is what handles duration, and
-the derivation already accounted for the delay; two minutes on top of a
-fourteen-minute detection time is noise. Note that the generators disagree here:
-Sloth emits no `for:` at all on burn-rate alerts.
+`for: 2m` is a debounce and nothing more, so that one strange evaluation does
+not page anybody. The short window handles duration, and two minutes on top of a
+fourteen-minute detection time is noise. The generators disagree here: Sloth
+emits no `for:` at all on burn-rate alerts.
 
 The `labels:` block carries `severity: page`, which is routing and not
 decoration — Chapter 17, "Alertmanager: Routing, Grouping and Silence", made `severity` the thing the route tree
@@ -467,8 +502,11 @@ returns the values of its left-hand side. So the number the page carries is the
 **one-hour** error ratio, which is the right one to quote: it is the long window,
 the one that decided this was worth an interruption.
 
-Now add the other three. They are the same shape with the pairs from the table
-substituted, and two changes: tiers 3 and 4 carry `severity: ticket` and
+Now add the other three: `SnipAvailabilityBurnMedium`,
+`SnipAvailabilityBurnSlow` and `SnipAvailabilityBurnVerySlow`. The names matter,
+because `verify-ch21.sh` matches them literally. They are the same shape with
+the pairs from the table substituted, and two changes: tiers 3 and 4 carry
+`severity: ticket` and
 `for: 15m`. Fifteen minutes is free on a rule whose long window is a day — nobody
 is measuring reaction time on a ticket — and it buys immunity to a class of
 transient nonsense the two-minute debounce would let through.
@@ -535,11 +573,14 @@ and
     concerned the expression evaluated perfectly and returned nothing.
 
     Run each half separately in the expression browser and the reason is one
-    label wide:
+    label wide. Fifteen minutes into the outage the one-hour window is still
+    filling and the five-minute one is entirely inside it, so the two numbers
+    differ — and both are comfortably past the 0.072 threshold, so both halves
+    really do return a series:
 
     ```text
-    {job="snip-api"}                    0.30012
-    {job="snip-api", window="5m"}       0.30028
+    {job="snip-api"}                    0.1203
+    {job="snip-api", window="5m"}       0.3001
     ```
 
     And the two together:
@@ -577,24 +618,37 @@ Put the rule back the way it was before continuing.
 ## Watch it fire, and time it first
 
 Now the part the whole chapter has been building toward. Before you run anything,
-predict.
+check the starting conditions and then predict.
+
+The one-hour rung still remembers the outage you ran to break approach 2, and a
+dirty window makes every alert arrive sooner than any formula says. Check it:
+
+```promql
+1 - job:snip_sli_availability:ratio_rate1h{job="snip-api"}
+```
+
+Wait until that reads below 0.01. If you would rather not wait the best part of
+an hour, start anyway and expect the page sooner than the predictions you are
+about to write down. You will have learned the same lesson from the other
+direction.
 
 `scenario-outage.sh` drives 40 requests per second with 30 % of redirects
 failing. That is an error ratio of 0.30 against a budget of 0.005, so the burn
 rate is **60**. Feed that into the detection formula, holding the request rate
 constant:
 
-| Tier | threshold ÷ 60 | × long window | with `for:` |
+| Tier | threshold ÷ burn rate | × long window | with `for:` |
 |---|---|---|---|
 | 1 | 0.24 | 14.4 min | ≈ 16 min |
 | 2 | 0.10 | 36 min | ≈ 38 min |
 | 3 | 0.05 | 72 min | ≈ 87 min |
 | 4 | 0.017 | 72 min | ≈ 87 min |
 
-Write those down. Then run it for half an hour so that tier 2 has a chance too:
+Write those down. Then start it and leave it running for half an hour, so that
+tier 2 has a chance too:
 
 ```bash
-DURATION=1800 ./scripts/scenario-outage.sh --no-wait
+./scripts/scenario-outage.sh --no-wait
 ```
 
 Watch `http://localhost:9090/alerts`, or query the alert state directly:
@@ -603,16 +657,18 @@ Watch `http://localhost:9090/alerts`, or query the alert state directly:
 ALERTS{alertname=~"SnipAvailabilityBurn.*"}
 ```
 
-Tier 1 will fire **early** — at roughly ten minutes, not sixteen. That is not a
-mistake in the formula and it is not a mistake in the rule. It is the second
-hidden assumption breaking, and it is worth the two minutes it takes to see why.
+Tier 1 arrives **early** — at about ten minutes rather than sixteen. That is not
+a mistake in the formula and it is not a mistake in the rule. It is the second
+hidden assumption breaking, and the correction is arithmetic you can do before
+the clock confirms it.
 
-The scenario does not only inject errors; it raises the request rate from 20 to
-40. The redirect route gets 80 % of the mix, so it goes from 16 requests per
-second to 32, of which 9.6 per second now fail. The one-hour window therefore
-fills with outage traffic **twice as fast** as the formula assumed, because each
-minute of outage contributes twice as many events as each minute of the healthy
-hour it is displacing. Working the ratio out minute by minute:
+The scenario does not only inject errors; it raises the request rate from the
+default 20 to 40. The redirect route gets 80 % of the mix, so it goes from 16
+requests per second to 32, of which 9.6 per second now fail. The one-hour window
+therefore fills with outage traffic **twice as fast** as the formula assumed,
+because each minute of outage contributes twice as many events as each minute of
+the healthy hour it is displacing. Work the ratio out minute by minute — the
+per-second rates cancel top and bottom, so *t* can stay in minutes:
 
 ```text
     error ratio after t minutes
@@ -624,14 +680,20 @@ hour it is displacing. Working the ratio out minute by minute:
 
 Add the two-minute debounce and the page lands at about ten minutes. Tier 2's
 six-hour window crosses at about nineteen minutes by the same arithmetic, so it
-pages at roughly twenty-one.
+pages at roughly twenty-one. Rules evaluate every thirty seconds, so read every
+prediction in this chapter to the nearest half minute and no finer.
 
-The lesson generalizes, and it cuts both ways. **Detection time depends on the
-mix of traffic inside the window, not only on the severity of the incident.** An
-incident that arrives with a traffic spike is detected sooner than the formula
-says. An incident that makes users give up and go away — a checkout that hangs,
-a page that will not load — reduces the request rate, and is detected *later*.
-Use the formula as the number to argue with, not as a promise.
+The same correction applies to the two ticket tiers and is still not enough to
+bring either inside a thirty-minute run: tier 3's one-day window crosses 1.5 %
+at around thirty-seven minutes, and then owes you a fifteen-minute `for:`. Both
+numbers, the constant-traffic 87 and the traffic-corrected 52, say the same
+thing to the person holding the phone: the ticket tiers are not in a hurry.
+
+The lesson cuts both ways. **Detection time depends on the mix of traffic inside
+the window, not only on the severity of the incident.** An incident that arrives
+with a traffic spike is detected sooner than the formula says; one that makes
+users give up and go away is detected *later*. Use the formula as the number to
+argue with, not as a promise.
 
 Look at the pager on `http://localhost:5001/` while this runs. Two of the four
 alerts carry `severity: page`, and Chapter 17's route tree sends those to the
@@ -644,8 +706,8 @@ record. Tickets go to `pager-ticket` only.
     must return at least one series with `alertstate="firing"` and
     `severity="page"` within fifteen minutes of the start. If it returns nothing
     after twenty minutes, run each half of the tier-1 conjunction on its own and
-    compare the label sets character by character. That is the trap above, and it
-    is the first thing to rule out.
+    compare the label sets character by character. That is the label trap, and
+    it is the first thing to rule out.
 
 Reset the injector when you are done:
 
@@ -658,8 +720,11 @@ curl -s -XPOST http://localhost:8089/chaos/reset
 Now the opposite case, and the one that justifies the chapter's title.
 
 ```bash
-DURATION=1800 ./scripts/scenario-drip.sh --no-wait
+./scripts/scenario-drip.sh --no-wait
 ```
+
+Half an hour of it is enough to see the point. It runs until you reset it with
+`POST /chaos/reset`.
 
 One percent of redirects failing. Burn rate 2. Above tier 4's threshold of
 0.005, below tier 3's 0.015, and an order of magnitude below either paging tier.
@@ -681,14 +746,16 @@ slo:error_budget_remaining:ratio30d
 Nothing pages. That is what "alerts that don't cry wolf" means, and you have
 watched a real, ongoing, budget-consuming problem fail to wake anybody.
 
-Be honest about what an hour cannot show you, though. Tier 4's long window is
-three days. On a lab that has been healthy for a while, thirty minutes of drip
-does not dominate three days of clean traffic, so the ticket will not appear
-inside your session no matter how long you sit there. The detection formula says
-so out loud: `72 h × 1 / 2 = 36 hours`. That tier is proved deterministically by
-the unit tests in the next section, which build the whole incident synthetically
-in about a second. What the live run reliably shows is the budget falling with
-nobody being woken, and that is the claim that matters.
+Be honest about what half an hour cannot show you. Tier 4's long window is three
+days, so on a lab that has been healthy a while the drip never dominates it and
+the ticket will not appear inside your session. The formula says so out loud:
+`72 h × 1 / 2 = 36 hours`. The unit tests prove that tier deterministically, in
+about a second. What the live run reliably shows is the budget falling with
+nobody being woken, and that is the claim that matters. Reset the injector:
+
+```bash
+curl -s -XPOST http://localhost:8089/chaos/reset
+```
 
 ## Testing the tiers, and finding the low-traffic failure
 
@@ -739,17 +806,20 @@ three faster tiers and a single ticket from the slowest. Negative cases are the
 valuable ones, and this one is the chapter's whole promise reduced to something a
 machine can check.
 
+The shipped file has four cases, not three. The fourth cannot be written yet,
+because it grades a guard you have not added: it is the case that proves each
+tier's event floor is sized for that tier rather than copied from tier 1.
+
 ### Why the three-day tier is not really tested
 
-You may notice the test never actually gives the slow tiers three days of
-samples. It does not, and pretending otherwise would be worse than saying so:
-generating three days of 30-second samples for a unit test costs 8,640 points per
-series and buys nothing. Over a seventy-minute test the one-day and three-day
-windows contain whatever data exists, which is enough to exercise everything
-that genuinely breaks in these rules — the label sets on either side of each
-`and`, the thresholds, and the guard. What a three-day fixture would additionally
-prove is that `rate()` works over long ranges, and that is Prometheus's problem,
-not yours.
+The test never gives the slow tiers three days of samples, and pretending
+otherwise would be worse than saying so: three days of 30-second points costs
+8,640 samples per series and buys nothing. Over a seventy-minute test the
+one-day and three-day windows contain whatever data exists, which is enough to
+exercise everything that genuinely breaks here — the label sets on either side
+of each `and`, the thresholds, and the guard. What a three-day fixture would
+additionally prove is that `rate()` works over long ranges, and that is
+Prometheus's problem, not yours.
 
 ### The case that fails
 
@@ -759,6 +829,7 @@ three of them failing.
 
 ```yaml
   - name: the minimum-events guard stops a near-idle service
+          from paging
     interval: 2m
     input_series:
       - series: 'snip_http_requests_total{job="snip-api",
@@ -776,7 +847,9 @@ three of them failing.
         exp_alerts: []
 ```
 
-Run it:
+Run it. This is the one step that only works on the `ch20` path: the `ch21` tag
+already carries the guards, so reading along there prints `SUCCESS`, and you
+read the failure here instead of causing it.
 
 ```bash
 make test-rules
@@ -785,6 +858,8 @@ make test-rules
 ```text
 Unit Testing:  /etc/prometheus/rules/tests/snip-burnrate_test.yml
   FAILED:
+    name: the minimum-events guard stops a near-idle service
+    from paging,
     alertname: SnipAvailabilityBurnFast, time: 70m,
         exp:[],
         got:[
@@ -814,10 +889,11 @@ single request. Push the target up to 99.9 % and it gets worse, not better: the
 tier-1 threshold falls to 1.44 %, and now a single failure in ten is seven times
 over it.
 
-The root cause is not the threshold. It is that a ratio computed from a handful of
-events is not a measurement. Nine successes and one failure is consistent with a
-true failure rate anywhere from about 0.3 % to 45 %, and no alerting rule can
-extract certainty that the data does not contain.
+The root cause is not the threshold. It is that a ratio computed from a handful
+of events is not a measurement. Nine successes and one failure give a 95 percent
+confidence interval on the true failure rate of roughly 0.3 % to 45 %. One event
+is not a measurement, and no alerting rule can extract certainty that the data
+does not contain.
 
 Watch it against real series:
 
@@ -837,22 +913,24 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 !!! warning "What the live run can and cannot show you"
     Your one-hour window still holds the previous hour of healthy traffic —
     tens of thousands of redirects — so the ratio stays microscopic and nothing
-    fires. That is not the guard working. It is the window remembering. The
+    fires. That is not the guard working, it is the window remembering. The
     low-traffic failure belongs to a service that is *always* quiet, and you
-    cannot conjure one inside a session on a lab that has been busy. The live
-    run shows you the two halves of the rule on real series; the unit test above
-    is what proves the failure, in one second, deterministically.
+    cannot conjure one on a lab that has been busy. The near-idle unit test is
+    what proves it, in one second, deterministically.
 
 ### Five fixes, and what each one costs
 
-There are five honest fixes. None of them is free, and the ranking below is by
+There are five honest fixes. None of them is free, and they are ranked here by
 how much you give up.
 
 **A minimum-events guard.** Require a floor of valid events in the long window
 before the ratio is allowed to mean anything. This is what the lab ships, and it
 is first because the cost is the smallest and the most explicit: below the floor,
-these alerts are switched off rather than wrong. Grafana Cloud's SLO product
-exposes the same idea under the name "Minimum Failures".
+these alerts are switched off rather than wrong. Grafana's SLO app — a Grafana
+Cloud feature, not something you can switch on in the OSS Grafana this lab runs
+— ships a related control called "Minimum Failures", which puts the floor on
+*failures* rather than on valid events. Exercise 5 asks you to build both and
+say which one you would rather own.
 
 **A wider long window.** Thirty days instead of seven gives every tier more
 events. Cost: slower detection, and a longer memory of every incident.
@@ -878,7 +956,9 @@ your service failing.
 
 ### Sizing the guard, per tier
 
-Take the first fix. The guard itself is one clause appended to each rule:
+Take the first fix. The guard itself is one clause appended to each rule. Each
+tier counts events over *that tier's own long window*, so the range changes with
+the tier — `[1h]`, `[6h]`, `[1d]`, `[3d]` — and so does the floor. Tier 1:
 
 ```yaml
           and
@@ -889,18 +969,18 @@ Take the first fix. The guard itself is one clause appended to each rule:
 ```
 
 `sum by (job)` matters: the output has to carry the same single `job` label as
-the two ratio clauses, or you have just written the label trap into your own fix.
+the two ratio clauses, or you have written the label trap into your own fix.
 
 Now the number. Sixty is not a taste. With *N* valid events in the long window,
 one failure is an error ratio of `1/N`, so a single failure is enough to trip a
 tier whenever `N < 1 / threshold`:
 
-| Tier | 1 / error ratio | Guard shipped |
-|---|---|---|
-| 1 (1 h) | 13.9 | 60 |
-| 2 (6 h) | 33.3 | 60 |
-| 3 (1 d) | 66.7 | 67 |
-| 4 (3 d) | 200 | 200 |
+| Tier | Guard range | 1 / error ratio | Guard shipped |
+|---|---|---|---|
+| 1 | `[1h]` | 13.9 | 60 |
+| 2 | `[6h]` | 33.3 | 60 |
+| 3 | `[1d]` | 66.7 | 67 |
+| 4 | `[3d]` | 200 | 200 |
 
 !!! pitfall "One guard for all four tiers"
     The obvious move is a single number everywhere, and this file shipped a flat
@@ -911,18 +991,57 @@ tier whenever `N < 1 / threshold`:
     spurious alerts quietly did not. Each guard has to be the larger of
     `1 / threshold` and whatever floor you consider the minimum measurable rate.
 
-Sixty valid redirects in an hour is one a minute. Below that, this lab declares
-the availability SLO unmeasurable and turns these alerts off. That is the cost,
-stated plainly, and it should make you slightly uncomfortable — because there is
-now a band between one and fifty-nine redirects an hour where the SLI exists (so
-`SnipSLIAbsent` stays quiet) and the burn alerts are muted. If that band matters
-for your service, alert on the valid-event rate itself falling below the floor:
+Say out loud what that buys and what it does not. Each floor is a count in its
+own window, so the same count is a looser *rate* the longer the window: sixty in
+an hour is one redirect a minute, sixty in six hours is one every six minutes,
+and sixty-seven in a day and two hundred in three days are both about one every
+twenty-two minutes. Only tier 1 enforces one a minute. A service that is
+*always* near-idle — thirty redirects an hour, three of them failing — puts a
+hundred and eighty events in six hours, clears tier 2's sixty, and pages once
+that window has filled. The guard buys you a floor per tier, not one floor for
+the service, and that is the cost, stated plainly. If a permanently quiet
+service is the case you care about, do not lean on the guards alone. Alert on
+the valid-event rate itself falling under the floor:
 
 ```promql
 job:snip_sli_valid:rate5m{job="snip-api"} < 60 / 3600
 ```
 
-Add the guards, with the per-tier numbers, and run the suite again:
+Add the guards, with the per-tier ranges and numbers, and add a fourth test case
+— the one that grades the sizing. It is that one-failure-in-sixty arithmetic
+made executable: fifty-nine good redirects over an hour and a single failure at
+minute 36.
+
+```yaml
+  - name: one failure in sixty redirects opens no ticket
+    interval: 1m
+    input_series:
+      - series: 'snip_http_requests_total{job="snip-api",
+                 instance="snip-api-1", env="lab", route="/l/{code}",
+                 method="GET", code="302"}'
+        values: "0+1x59 59x10"
+      - series: 'snip_http_requests_total{job="snip-api",
+                 instance="snip-api-1", env="lab", route="/l/{code}",
+                 method="GET", code="500"}'
+        values: "0x35 1x34"
+
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: SnipAvailabilityBurnSlow
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: SnipAvailabilityBurnVerySlow
+        exp_alerts: []
+```
+
+Then assert with `promql_expr_test` that both ratio halves really are true and
+both guards really are false — `> bool (3 * 0.005)` and `> bool (1 * 0.005)`
+reading 1, `>= bool 67` and `>= bool 200` reading 0 — so the guard is provably
+the only thing holding those two tiers back. Without those four assertions the
+case would pass for the wrong reason. Set either guard back to 60 and it fails,
+which is what turns the pitfall from advice into a test.
+
+Run the suite again:
 
 ```bash
 make test-rules
@@ -940,13 +1059,13 @@ Unit Testing:  /etc/prometheus/rules/tests/snip-burnrate_test.yml
 Two edits to `lab/prometheus/rules/snip-alerts.yml` finish the lab step.
 
 **Delete `SnipHighErrorRatio`.** It was Chapter 16's threshold on the error
-ratio, with a 20 % boundary that was picked because one redirect in five failing
-is unambiguously bad. It has now been superseded four times over by rules whose
-thresholds come from a written-down objective. Leaving it in place does not make
-you safer; it pages you twice for one outage, from two rules that disagree about
-what "bad" means. `make verify-ch21` checks that it is gone. Chapter 16
-promised the threshold-plus-`for` shape would be replaced wholesale, and this
-is the replacement: *IOU from chapter 16, settled.*
+ratio, its 20 % boundary picked because one redirect in five failing is
+unambiguously bad. It has been superseded four times over by rules whose
+thresholds come from a written-down objective, and leaving it in place pages you
+twice for one outage, from two rules that disagree about what "bad" means. `make
+verify-ch21` checks that it is gone. Chapter 16 promised the
+threshold-plus-`for` shape would be replaced wholesale, and this is the
+replacement: *IOU from chapter 16, settled.*
 
 **Keep `SnipSLIAbsent`.** Every rule you wrote today is built on
 `job:snip_sli_availability:ratio_rate*`, and an expression over a series that
@@ -957,9 +1076,29 @@ perfectly healthy-looking rule.
 absent(job:snip_sli_valid:rate5m{job="snip-api"})
 ```
 
-That is the only alert in the repository whose value is always 1 when it fires.
-It is the floor underneath everything else in this chapter, and it costs one
-rule.
+Apart from Chapter 19's Watchdog, which is `vector(1)` by construction, that is
+the only alert in the repository whose value is always 1 when it fires — and the
+pair is worth noticing: one proves the pipeline is alive, the other proves the
+SLI is.
+
+Be precise about which blindness it covers, because this chapter's own quiet
+service walks straight past it. `absent()` catches snip-api not being scraped:
+the target goes, its counters go with it, the recording rule produces nothing
+and the alert returns a 1. It does **not** catch snip-api being up and serving
+no redirects. Chapter 9's fix pre-initializes the counters, so with no traffic
+they sit still rather than disappearing, and `job:snip_sli_valid:rate5m` is a
+count deliberately left unguarded — so it exists reading 0 and `absent()` stays
+silent. Every availability rung, meanwhile, divides by a denominator filtered
+`> 0`, so an idle window produces no sample at all, and with the rungs gone all
+four tiers return an empty vector with health `ok`. The alert built to catch a
+blind SLI is blind to the quietest way of going blind, and
+`scenario-low-traffic.sh` drives the lab toward exactly that state.
+
+So keep both. `absent()` is the floor under a target that vanished; the
+valid-event comparison you met while sizing the guards —
+`job:snip_sli_valid:rate5m{job="snip-api"} < 60 / 3600` — is the floor under a
+service that is still there and has nothing to measure. Two rules, and between
+them the burn tiers can no longer go quiet without saying so.
 
 One edit to `lab/alertmanager/alertmanager.yml`. A sustained outage trips all
 four tiers, and four notifications for one incident is exactly the noise this
@@ -979,9 +1118,21 @@ inhibit_rules:
 Every alert involved carries all three of `job`, `service` and `route`, which is
 what makes this rule safe: an `equal` list naming a label that is missing from
 both sides counts as a match, and that is how inhibit rules silence things nobody
-meant to silence. Extend the existing `SnipTargetDown` inhibit rule's target
-matcher to cover `SnipAvailabilityBurn.*` at the same time — a replica that has
-stopped answering is the cause, and the burn rates climbing are the symptom.
+meant to silence.
+
+Tighten the existing `SnipTargetDown` inhibit rule in the same edit. Chapter 17
+wrote its target as "every Snip alert that is not this one" — `alertname !=
+"SnipTargetDown"` plus `service = "snip"`. Replace those two matchers with one
+that names what it suppresses:
+
+```text
+alertname =~ "Snip(AvailabilityBurn.*|SLIAbsent|LatencyObjectiveAtRisk)"
+```
+
+A replica that has stopped answering is the cause and the burn rates climbing
+are the symptom, so the suppression is right. Naming the targets is what keeps
+it right: a catch-all target silences the next alert somebody adds to the
+service, including one that has nothing to do with a dead replica.
 
 !!! selfcheck "Self-check"
     ```bash
@@ -990,7 +1141,8 @@ stopped answering is the cause, and the burn rates climbing are the symptom.
 
     It prints one `PASS` line per tier for each of loaded, windows, threshold and
     severity, then checks the deletion, `SnipSLIAbsent`, the test file, the test
-    suite and the two Alertmanager routes. It must end with:
+    suite, and that Alertmanager routes `page` and `ticket` separately. It should
+    end with:
 
     ```text
     ch21: 21 passed, 0 failed, 1 skipped
@@ -998,15 +1150,20 @@ stopped answering is the cause, and the burn rates climbing are the symptom.
     ```
 
     The skip is the live outage and drip scenarios: 15 and 60 minutes, longer
-    than a verify script may take. You have already run them by hand.
+    than a verify script may take. You have already run them by hand. If `make`
+    is not on your path the script cannot drive `promtool`, so that line skips
+    too and the tally reads `20 passed, 0 failed, 2 skipped`. Building from
+    `ch20` you need the script itself before the target resolves:
+    `git checkout ch21 -- scripts/verify-ch21.sh`.
 
 ## Generators: Sloth and Pyrra
 
-Nothing you wrote today was hard, but you wrote nine expressions and four rules
-for **one** SLO, and you have two. Multiply by a dozen services and hand-writing
-stops being a virtue. Two tools generate all of it, and you will meet their
-output in somebody else's repository before you ever choose to adopt one. The
-point of this section is recognition, not installation.
+Nothing you wrote today was hard, but count it: four rules with twelve clauses
+between them, standing on Chapter 20's eight recorded windows — all for **one**
+SLO, and `docs/SLO.md` declares two. Multiply by a dozen services and
+hand-writing stops being a virtue. Two tools generate all of it, and you will
+meet their output in somebody else's repository before you choose to adopt one.
+The point here is recognition, not installation.
 
 **Sloth** (v0.16.0, April 2026, `ghcr.io/slok/sloth:v0.16.0`) is a generator and
 nothing else. You give it a fifteen-line spec — service, objective, an error
@@ -1017,9 +1174,10 @@ without risking your stack.
 
 Four things identify Sloth output on sight. The recorded names are
 `slo:sli_error:ratio_rate5m` through `…:ratio_rate30d`, uniform across every
-service. Every series carries `sloth_id`, `sloth_service`, `sloth_slo` and
-`sloth_window` — three labels chosen for you, on every rung, which is a
-cardinality decision somebody else made. The alerts carry a `sloth_severity`
+service. Every SLI rung carries `sloth_id`, `sloth_service` and `sloth_slo` —
+three labels chosen for you, which is a cardinality decision somebody else
+made — plus a `sloth_window` naming the range. The meta rules carry the first
+three and not the window. The alerts carry a `sloth_severity`
 label alongside your own `severity`. And every clause is wrapped in
 `max(...) without (sloth_window)`, for the reason you proved earlier in this
 chapter.
@@ -1040,15 +1198,20 @@ in a Kubernetes resource that Chapter 27 unpacks — read past the wrapper to th
 
 Pyrra's conventions differ from Sloth's almost everywhere. Recorded names are
 per-metric, `snip_http_requests:burnrate3m` rather than a uniform `slo:` prefix.
-The long-window figure is an `increase()` over the raw counter rather than an
-average of the five-minute rung. Windows scale to whatever `window:` you asked
-for instead of coming from a fixed catalog. There is one alert name,
+Its **30-day budget** figure is an `increase()` over the raw counter rather than
+an average of the five-minute rung — `snip_http_requests:increase30d`, recorded
+in its own group every 2m30s. The burn-rate windows themselves are plain
+`rate()` ratios, the same shape as yours. Windows scale to whatever `window:`
+you asked for instead of coming from a fixed catalog. There is one alert name,
 `ErrorBudgetBurn`, repeated four times and distinguished by `long` and `short`
-labels. It classifies its tiers as FastBurn, MediumBurn, SlowBurn and
-LongTermBurn, has an absent-data alert built in rather than bolted on, offers
-four indicator types — `ratio`, `latency`, `latencyNative` and `boolGauge` — and
-since v0.10.0 annotates alerts with a `pyrra_url` that links straight to that
-SLO's page.
+labels. It names its four tiers FastBurn, MediumBurn, SlowBurn and LongTermBurn
+internally, but none of those names reaches the generated file: what you will
+see on each alert is `severity: critical` or `severity: warning`, with `long`
+and `short` carrying the windows. Recognize Pyrra by the repeated
+`ErrorBudgetBurn` and that `long`/`short` pair, not by the tier names. It also
+has an absent-data alert built in rather than bolted on, offers four indicator
+types — `ratio`, `latency`, `latencyNative` and `boolGauge` — and since v0.10.0
+annotates alerts with a `pyrra_url` that links straight to that SLO's page.
 
 Neither tool is wrong. They implement the same chapter of the same book and they
 disagree about window pairs, burn factors, alert names, severities and how to
@@ -1059,10 +1222,11 @@ mysterious.
 
 !!! warning "Read your generator's output, not a book's description of it"
     Both fixtures in this repository are illustrations of shape. Field names,
-    annotation keys and label conventions move between releases — the
-    `exhaustion` annotation on the Pyrra fixture is a good example of a detail
-    worth verifying against your own generated file before you build anything on
-    it. Generate once, read what you got, then commit it.
+    annotation keys and label conventions move between releases: the Pyrra
+    fixture carries `exhaustion` and no `pyrra_url`, although a current Pyrra
+    emits both. That is the point — verify every annotation key against your own
+    generated file before you build anything on one. Generate once, read what
+    you got, then commit it.
 
 ## Common mistakes
 
@@ -1084,8 +1248,8 @@ healthy and permanently incapable of firing.
     person holding the phone has to work out whether they are the same incident.
     Two alerts on one SLI is not redundancy. Pick one and delete the other.
 
-**A single minimum-events guard for all four tiers.** Covered above, and worth
-repeating because it is the failure that survives the first round of testing:
+**A single minimum-events guard for all four tiers.** Worth repeating, because
+it is the failure that survives the first round of testing:
 a guard sized for the fast tier is too small for the slow ones, and the slow ones
 are the tiers with the lowest thresholds and therefore the greatest exposure to a
 single failure.
@@ -1136,10 +1300,13 @@ The durable takeaways:
   and the alert is silently dead. That is what `max(...) without (sloth_window)`
   exists for.
 - A ratio over a handful of events is not a measurement. Guard every tier with a
-  minimum event count sized as at least `1 / threshold`, and say out loud what
-  the guard switches off.
-- Keep the `absent()` alert on the SLI. Every burn-rate rule you own is blind
-  without it.
+  minimum event count over *that tier's own long window*, sized as at least
+  `1 / threshold`, and say out loud what the guard switches off — the same count
+  is a looser rate the longer the window.
+- Keep the `absent()` alert on the SLI, and a floor on the valid-event rate
+  beside it. `absent()` catches a target that vanished; only the rate floor
+  catches a service that is up and serving nothing, which is when every
+  burn-rate rung disappears.
 
 ## Exercises
 
@@ -1154,8 +1321,10 @@ The durable takeaways:
     uncomfortable about short SLO windows and burn-rate alerting.
 
     **2. Predict, then measure (core).** For a sustained 3 % error ratio
-    against the 99.5 % availability objective, compute the burn rate and the
-    detection time for tiers 1 and 2. Then produce it and time it:
+    against the 99.5 % availability objective, compute the burn rate and then
+    the detection time for tiers 1 and 2. Write down what the formula returns
+    for each, and say in one sentence what that answer means for the person on
+    call. Then produce the incident and check your answer against the clock:
 
     ```bash
     curl -s -XPOST http://localhost:8089/control \
@@ -1163,10 +1332,12 @@ The durable takeaways:
     ```
 
     Keeping `rps` at 20 is the point — it is the constant-traffic assumption the
-    formula needs. Note the wall-clock time, then read
-    `ALERTS_FOR_STATE{alertname="SnipAvailabilityBurnFast"}`, which holds the
-    Unix timestamp at which the alert became active. Your prediction should be
-    within a couple of minutes of the measurement. Reset the injector afterward.
+    formula needs. Read `ALERTS_FOR_STATE{alertname="SnipAvailabilityBurnFast"}`,
+    which holds the Unix timestamp at which the alert became active. Then raise
+    `error_ratio` to `0.09`, predict both detection times again, and this time
+    measure them: at that ratio the arithmetic produces finite numbers and the
+    clock should land within a minute or two of each. Reset the injector
+    afterward.
 
     **3. Kill a tier silently (core).** Add a stray label to one side of
     tier 2's `and`, using `label_replace` as shown in this chapter. Reload,
@@ -1189,12 +1360,18 @@ The durable takeaways:
     passes. Rank the three by what each costs you, in one sentence each.
 
     **6. Break a generated rule (core).** Open
-    `lab/fixtures/sloth-generated.yml`, copy the
-    `SnipAvailabilityHighErrorRate` alert into a scratch rule file, and remove
-    the `max(...) without (sloth_window)` wrapper from one clause. Load it and
-    confirm it never fires. Then explain in one line why — the answer is one
-    label wide, and you should be able to point at it in the recording rules
-    above the alert.
+    `lab/fixtures/sloth-generated.yml` and copy *both* the
+    `sloth-slo-sli-recordings-snip-availability` group and the
+    `SnipAvailabilityHighErrorRate` alert into a scratch rule file under
+    `lab/prometheus/rules/` — `fixtures/` is never loaded, so the alert on its
+    own reads series that do not exist and is empty for the wrong reason.
+    Reload, give the recordings a few minutes, run `scenario-outage.sh` and
+    confirm the alert does fire: that is your control. Now remove the
+    `max(...) without (sloth_window)` wrapper from one clause of *each* `or`
+    branch and confirm it goes dead. Remove it from one branch only and watch
+    the alert half-die — the fast pair stops, the slow pair still fires, and
+    nothing anywhere says so. Then explain in one line why: the answer is one
+    label wide.
 
 !!! note "Part VI — before and after"
     In Chapter 1 you spent an unbounded amount of time failing to answer "is it

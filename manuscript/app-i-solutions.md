@@ -1657,11 +1657,14 @@ already reads `1`. `for: 30s` and `for: 1m` therefore behave
 identically to `for: 2m` on this input. Only `for: 0` fires on a single
 evaluation. Put `for: 2m` back.
 
-**4.** Make the output directory writable first — the image runs as
-`nobody` and a bind mount keeps your host's ownership:
+**4.** Create the output directory first. Through Compose the container
+is root — `user: "0:0"` in `compose.yaml`, which Chapter 12 put there —
+so no `chmod` is needed here; the `chmod 0777` in
+`.github/workflows/rules.yml` is there because CI uses a plain `docker
+run`, where the image's own `nobody` applies:
 
 ```bash
-mkdir -p ci-out && chmod 0777 ci-out
+mkdir -p ci-out
 docker compose run --rm --no-deps -T --entrypoint /bin/sh \
   -v "$PWD/ci-out:/out" prometheus \
   -c 'promtool test rules --junit /out/rule-tests.xml \
@@ -1693,6 +1696,12 @@ candidates are the aggregation, whose real damage is buried in a long
 rendered-annotation diff rather than in the label line, and the
 misspelled matcher, whose `got:[]` is indistinguishable from a rule
 that correctly did not fire.
+
+Put all four back before going on: `git checkout --
+prometheus/rules/snip-alerts.yml` undoes the lot, and `make test-rules`
+must print `SUCCESS` again. Chapter 19 edits this same file and
+`verify-ch19.sh` runs 19 assertions across these four rules, so a
+broken one follows you into the next chapter.
 
 **6.** Open-ended infrastructure work, and the one exercise in the book
 that needs the internet. A good answer contains: the workflow running
@@ -1762,14 +1771,16 @@ curl -s http://localhost:5001/api/notifications \
   | sort | uniq -c | sort -rn
 ```
 
-The winners are the alerts the script keeps adding to. In the
-chapter's own run, `SnipTargetDown` and `SnipHighErrorRatio` tie at 14
-each, so defend or delete both. Two points must appear in the
-defense or the deletion. The Watchdog dominates the raw
-Alertmanager counter and is excluded by construction, because it goes
-to the `deadman` receiver and no human reads it. And `pager-ticket`
-exceeds `pager-page` even though fewer alerts are tickets, because
-`continue: true` mirrors every page into the ticket queue.
+The winner is the alert the script keeps adding to on every wave and
+which is also a page: `SnipTargetDown`. `PrometheusTargetScrapesFailing`
+grows just as often but is a ticket, so it reaches one receiver rather
+than two and lands at roughly half the count — which is the lesson, and
+the thing to say in the defense or the deletion. Two further points must
+appear. The Watchdog dominates the raw Alertmanager counter and is
+excluded by construction, because it goes to the `deadman` receiver and
+no human reads it. And `pager-ticket` exceeds `pager-page` even though
+fewer alerts are tickets, because `continue: true` mirrors every page
+into the ticket queue.
 
 The verdict must be exactly one of keep, downgrade, retune or delete,
 with a reason, in `lab/docs/ALERT-REVIEW.md`. The common wrong turn is
@@ -1782,10 +1793,16 @@ paste; the first step, identical to the annotation; the four causes you
 have really seen, most frequent first, as an ordered list; mitigation
 in order of speed; and escalate-when as a condition rather than a mood.
 
-The diff against the shipped page is the exercise. The interesting
-difference is what you *included* that will rot — anything naming a
-container, a port or a topology is a branch that a deploy invalidates.
-That is why the causes are a list and not a tree.
+Write yours as `docs/runbooks/SnipHighErrorRatio.mine.md` so the
+shipped page survives to be compared against, then `diff` the two. On
+the recreate path from `ch18` the shipped page is not in the tree
+unless you fetched it with the chapter's `git checkout ch19 --`;
+`git show ch19:docs/runbooks/SnipHighErrorRatio.md` also works.
+
+The diff is the exercise. The interesting difference is what you
+*included* that will rot — anything naming a container, a port or a
+topology is a branch that a deploy invalidates. That is why the causes
+are a list and not a tree.
 
 **5.** The taxonomy the lab uses, and the only three values `LAB-SPEC`
 permits: `page` routes to `pager-page` and, through `continue: true`,
@@ -1816,17 +1833,24 @@ That is pages per simulated 12-hour shift, against Google's ceiling of
 two per shift. It will be far above it, because you spent four minutes
 manufacturing noise on purpose.
 
-The second number needs the mirror removed. Every page is delivered
-twice — once to `pager-page` and once to `pager-ticket` — so summing
-both receivers double-counts every page. Subtracting the mirror leaves
-`pager-ticket` alone, which already contains every page plus the
-genuine tickets, and is therefore the count of *distinct* human-facing
-notifications.
+The second number adds the `status` label, which `pager/app.py`
+declares alongside `receiver`:
+
+```promql
+sum(increase(pager_notifications_received_total{
+  receiver="pager-page", status="firing"}[6h])) * 2
+```
+
+The unfiltered figure counts every page twice over its life — once
+firing, once resolved — so it is roughly double the number of times
+anybody was actually woken. Filtering to `status="firing"` is the
+number closer to "times somebody got out of bed"; the all-clear is a
+notification a human received, not a page that woke them.
 
 Both are defensible. What makes the metric honest is saying which one
 you mean: "pages that woke someone" and "notifications a human
-received" are different questions, and a number quoted without naming
-its receiver answers neither.
+received" are different questions, and a number quoted without saying
+which one it is answers neither.
 
 ## Chapter 20 — SLIs, SLOs and Error Budgets
 
@@ -1995,9 +2019,9 @@ and
   > (6 * 0.005)
 ```
 
-Reload, run `DURATION=1800 ./scripts/scenario-outage.sh --no-wait`, and
-`ALERTS{alertname="SnipAvailabilityBurnMedium"}` returns nothing for the whole
-outage while `/rules` shows the rule `inactive` with health `ok`. `make
+Reload, run `./scripts/scenario-outage.sh --no-wait`, leave it running for half
+an hour, and `ALERTS{alertname="SnipAvailabilityBurnMedium"}` returns nothing
+for the whole outage while `/rules` shows the rule `inactive` with health `ok`. `make
 test-rules` fails in about a second, on the first case in
 `snip-burnrate_test.yml` — "a sustained ten percent error ratio fires all four
 tiers" — at the `SnipAvailabilityBurnMedium` assertion. The test told you in a
@@ -2207,8 +2231,9 @@ ordinary scraped target has had since Chapter 1.
 ## Chapter 23 — The Multi-Target Pattern: Probing From Outside
 
 **1.** For the target `https://edge:8443/-/healthy`, which also carries
-`__param_module: http_2xx_insecure_tls` from its own `labels:` block, the four
-rules move one value across three slots:
+`__param_module: http_2xx_insecure_tls` from its own `labels:` block, the three
+rules move one value across three slots, and the `env` rule that follows them
+moves nothing:
 
 | After | `__address__` | `__param_target` | `instance` |
 |---|---|---|---|
@@ -2216,10 +2241,10 @@ rules move one value across three slots:
 | rule 1 | the probed URL | the probed URL | — |
 | rule 2 | the probed URL | the probed URL | the probed URL |
 | rule 3 | `blackbox-exporter:9115` | the probed URL | the probed URL |
-| rule 4 | `blackbox-exporter:9115` | the probed URL | the probed URL |
+| `env` | `blackbox-exporter:9115` | the probed URL | the probed URL |
 
-Rule 4 writes `env="lab"` and touches none of the three columns. Confirm the
-last row with `probe_ssl_earliest_cert_expiry{job="blackbox"}`: its `instance`
+The `env` rule writes `env="lab"` and touches none of the three columns.
+Confirm the last row with `probe_ssl_earliest_cert_expiry{job="blackbox"}`: its `instance`
 reads `https://edge:8443/-/healthy`, and `__address__` appears nowhere, because
 every label whose name begins with `__` is discarded before storage. `make
 verify-ch23` checks that second half mechanically — it asserts that no probe
@@ -2229,11 +2254,14 @@ series carries the exporter's own address in `instance` — and a clean run ends
 **2.** `probe_success` for `http://nowhere:8080/healthz` reads `0`, and that is
 the verdict rather than the diagnosis. A good answer names a second series that
 separates "the name never resolved" from "the host resolved and refused", and
-the candidates worth checking on your own run are the ones the chapter lists as
-arriving from every prober: `probe_ip_addr_hash` and `probe_ip_protocol` exist
-only once an address has been resolved, and `probe_dns_lookup_time_seconds`
-records the time the lookup took. A refused connection produces all three and
-still fails; an unresolvable name stops before them. The answer must also note
+the candidates are the ones the chapter lists as arriving from every prober:
+`probe_ip_protocol`, `probe_ip_addr_hash` and `probe_dns_lookup_time_seconds`.
+The trap is to look for a missing series. All three are published either way,
+because the exporter registers them before it attempts the lookup, so the
+answer is in their values: a host that resolved and then refused the connection
+has a protocol number and a non-zero address hash and still reports
+`probe_success 0`, while a name that never resolved leaves `probe_ip_protocol`
+and `probe_ip_addr_hash` at `0`. The answer must also note
 that `up{job="blackbox"}` stays `1` throughout — the exporter answered the
 scrape perfectly — and that `debug=true` settles it in one request by printing
 a `Resolution with IP protocol failed` line. Remove the target before you run
@@ -2268,14 +2296,19 @@ colleague: for the DNS prober, `target` is whom you ask and `query_name` is
 what you ask about, which is backwards from every other module because a DNS
 probe is a probe of a resolver.
 
-**4.** Open-ended in its wording, determinate in its shape. Remove `cap_add:
-[NET_RAW]`, run `docker compose up -d --force-recreate blackbox-exporter`, and
-probe with `?target=edge&module=icmp`. What you should write down is a
-permissions error raised while opening the raw socket — not a timeout, not a
-DNS error, and nothing that names ICMP or the target. That is the point of the
-exercise: the message describes a syscall, so it sends you looking at the
-network when the problem is the container's capabilities. Put `cap_add:
-[NET_RAW]` back, recreate the container again, and the same probe returns
+**4.** Open-ended in its wording, determinate in its shape. The first half of
+the answer is the reason the exercise says `cap_drop` rather than "delete the
+`cap_add` line": `NET_RAW` is already in Docker's default capability set, so
+deleting the line takes nothing away and the probe keeps working. `cap_drop:
+[NET_RAW]` does take it away, and the `ping_group_range` sysctl closes the
+unprivileged ping path that would otherwise still be open. Run `docker compose
+up -d --force-recreate blackbox-exporter` and probe with
+`?target=edge&module=icmp`. Write down the exporter's own words rather than a
+paraphrase of them. The shape of the answer is what matters: the message
+describes a socket the prober could not open, not a timeout, not a DNS error,
+and nothing that names ICMP or the target — so it sends you looking at the
+network when the problem is the container's capabilities. Put the service back
+as it was, recreate the container again, and the same probe returns
 `probe_success 1`.
 
 **5.** Add the site to the existing `blackbox` job's first `targets:` list so

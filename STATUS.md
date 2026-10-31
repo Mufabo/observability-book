@@ -55,8 +55,8 @@ Drafting alone ~280k tokens/chapter; the full pipeline ~960k.
 
 | State | Chapters |
 |---|---|
-| **Verified + repaired** | 1–17 (Parts I–V complete) |
-| **Drafted, single-reviewer pass 2026-10-16 — not through the two-verifier pipeline** | 18–29 |
+| **Verified + repaired** | 1–23 |
+| **Drafted, single-reviewer pass 2026-10-16 — not through the two-verifier pipeline** | 24–29 |
 | **Back matter — written, not verified** | front matter, appendices A–I |
 
 ```bash
@@ -86,8 +86,45 @@ ch19 and App I 19.3 now comes from that run. The measurement corrected three cla
 - `SnipTargetDown` and `SnipHighErrorRatio` **tie** at the top; a single winner is not possible
   with this script.
 
+**IN PROGRESS, 2026-10-17: restoring the original story** (the user's decision). The lab is
+changed but not yet measured, and nothing from this step is committed:
+- The deadman route is now `0s / 1m / 30s`, in the live file and in `.history/ch19` and
+  `ch21`. A trial confirmed one heartbeat a minute: 7 in the first 6 minutes.
+- `scenario-noise-history.sh` now grows `SnipTargetDown` and `PrometheusTargetScrapesFailing`
+  every wave and `SnipHighErrorRatio` every third wave. The two trials gave 14/8/6 (Scrapes
+  every 2nd, HER every 3rd) and 14/12/7 (Scrapes every wave, HER every 2nd); the current split
+  is untested and expected to give about 14/8/7 against a tail of 6.
+- `SPEC-DELTAS.md` M9 and V10 are updated to match.
+
+Next steps:
+1. Extract `ch19` into `.scratch/run-ch19` (the tags are already rebuilt with these changes).
+2. Run a fresh six-hour Watchdog period, then the scenario, then the audit queries.
+3. Replace ch19's figures (deadman ≈ 360; the "one a minute" text and the 1m `repeat_interval`
+   yaml block at ch19:551–563 need rewriting to 30s) and App I 19.3. Keep the corrected
+   "raw counters agree" paragraph, which is a factual fix, not a story choice.
+4. Update `MEASURED.md` §12, then rebuild the EPUB and commit.
+
 The run also exposed that every tag committed files as `100644`, so `./scripts/*.sh` failed after
 a clone. `cut_tags.py` now stages shebang files as `100755` (44 at ch29).
+
+## Trap: there is no `localhost:9090` from chapter 25 on
+
+Chapter 25 ("locking the door") has the reader **delete** `ports: - "9090:9090"` from the
+`prometheus` service, and the lab history honours it: `.history/ch01..ch23` publish the port,
+`ch25`, `ch28` and `ch29` do not. Grafana is unaffected because its data source is
+`http://prometheus:9090` over `obsnet` with `access: proxy`, which is the chapter's whole point.
+
+Consequence for anyone driving the lab: **at a ch25+ tree, Prometheus is reachable only from
+inside `obsnet`.** A readiness poll against `http://localhost:9090/-/ready` there cannot ever
+succeed. Cost once, 2026-10-31: a bring-up wrapper spun on that loop for two hours against a
+stack that was healthy the whole time. Use
+
+```bash
+docker run --rm --network obsnet curlimages/curl:8.11.1 -s http://prometheus:9090/-/ready
+```
+
+`build/write_chapters.js` already does this correctly. Chapters 1-23 legitimately print
+`localhost:9090` and must not be "corrected".
 
 ## Work outstanding, in priority order
 

@@ -12,7 +12,7 @@ const ROOT = 'C:/Users/fatih/Desktop/Co-Authored with Claude/observability-book'
 const MS = ROOT + '/manuscript'
 const LAB = ROOT + '/lab'
 const SCRATCH = 'C:/Users/fatih/AppData/Local/Temp/claude/C--Users-fatih-Desktop-Co-Authored-with-Claude/ff0d43dd-98b0-46ae-ad93-8bb48428a4dd/scratchpad'
-const TODAY = '2026-09-19'
+const TODAY = '2026-10-31'
 
 const CHAPTERS = [
   { n: 1, t: 'Ten Minutes to Your First Metric', f: 'ch01-ten-minutes-to-your-first-metric.md', w: 5000 },

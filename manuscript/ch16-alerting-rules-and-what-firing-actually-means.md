@@ -592,8 +592,9 @@ place:
 Note the last one: it is why `SnipTargetDown` exists in a chapter that just argued for
 symptoms — except that as written it pages for a *single* replica, which by the rule just
 stated it should not, since the other one is still serving. It stays that way because
-Chapter 17 needs a binary, fast-reacting alert to route, and Chapter 19 gives it the
-severity it deserves. The rule here that genuinely earns a page on a cause is the fourth:
+Chapter 17 needs a binary, fast-reacting alert to route, and Chapter 19 argues about the
+severity it deserves and says why the lab keeps it anyway. The rule here that genuinely
+earns a page on a cause is the fourth:
 when the indicator disappears, there is nothing left to measure the symptom with.
 
 ## Annotations: writing for the person you woke up

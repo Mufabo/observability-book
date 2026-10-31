@@ -15,8 +15,9 @@ like. Everything here is for `quay.io/prometheus/prometheus:v3.13.1`, the pin in
 ## The two invocations everything else is built on
 
 The image's `ENTRYPOINT` is the server binary, so a plain `docker compose run
-prometheus …` starts a Prometheus and ignores whatever you typed. Every call
-overrides the entry point. There are two shapes, and `lab/Makefile` keeps both:
+prometheus test rules …` hands your arguments to the *server*, which has no
+`test` sub-command and exits on a command-line parse error without starting
+anything. Every call overrides the entry point. There are two shapes, and `lab/Makefile` keeps both:
 
 ```text
 PROMTOOL    := $(COMPOSE) run --rm --no-deps -T \
@@ -234,8 +235,10 @@ The `values:` expansion notation, which is where the mistakes live:
 `n` counts the samples *after* the first, so `1x4` is five, not four.
 
 Flags worth knowing: `--run <regex>` (repeatable) runs only the tests whose
-`name` matches, `--junit <path>` writes an XML report — note that it goes on the
-`test` command, before `rules` — `--debug` prints the evaluation, and `--diff`
+`name` matches, `--junit <path>` writes an XML report — it is declared on the
+`test` command rather than on `rules`, and may be written on either side of
+`rules`; the lab's workflow writes it after — `--debug` prints the evaluation,
+and `--diff`
 is an experimental colored diff of expected against actual.
 `lab/.github/workflows/rules.yml` runs the plain suite and then the `--junit`
 one, and invokes `make test-rules` as itself rather than reimplementing it.

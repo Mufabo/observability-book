@@ -2,11 +2,10 @@
 
 Everything you have built lives in one container. One process holds the head
 block, the write-ahead log, the rule engine and the query API, and one named
-volume holds the blocks. Stop that container and every dashboard in this book
+volume holds the blocks. Stop that container and every dashboard you have built
 goes blank, every alerting rule stops evaluating, and the Watchdog stops
-arriving — which is exactly what Chapter 19, "What a Page Should Say, and Who
-Watches the Watcher", built the pager to notice. Start it again and it replays
-the log before it will answer a single query.
+arriving — which is what Chapter 19, "What a Page Should Say, and Who Watches
+the Watcher", built the pager to notice.
 
 For a laptop lab that is fine. For a first production system it is usually still
 fine, and saying so plainly is the most useful thing this chapter can do. The
@@ -16,12 +15,11 @@ you would manage any other single-node database. That is a statement about
 *durability and blast radius*, not about capacity. A modern machine with an NVMe
 disk runs a Prometheus with millions of active series without complaint.
 
-So this chapter is a decision before it is a set of techniques. First: do you
-need any of this yet, and how would you know. Then the two things you will
-actually be asked to do in a first job — run a second copy without lying to
-yourself about what it buys, and ship your data somewhere that outlives the box.
-Then a map of the systems people reach for next, drawn carefully enough to
-choose between them and deliberately not taught.
+So this is a decision before it is a set of techniques. First: do you need any
+of this yet, and how would you know. Then the two things a first job will ask of
+you — run a second copy without lying to yourself about what it buys, and ship
+your data somewhere that outlives the box. Then a map of what people reach for
+next, drawn well enough to choose between them and deliberately not taught.
 
 !!! objectives "Objectives"
     After this chapter you can:
@@ -43,76 +41,78 @@ choose between them and deliberately not taught.
 
 This runs against the stack as Chapter 25, "Storage, Retention, Backups and
 Locking the Door", left it: Prometheus has no published host port of its own and
-lives behind `edge` with a password, `meta.json` watches the monitoring system
-watching everything else, and retention is set in `prometheus.yml` rather than
-on the command line. The `ch26` tag adds the `compose.scale.yaml` overlay and a
-second Grafana data source, to read along with; to write them yourself, check out
-`ch25` instead. The `remote_write` block is yours to write on either tag.
+lives behind `edge` with a password, and retention is set in `prometheus.yml`
+rather than on the command line. The `ch26` tag adds the `compose.scale.yaml`
+overlay and a second Grafana data source, to read along with; to write them
+yourself, check out `ch25` instead. The `remote_write` block is yours to write on
+either tag.
 
 ```bash
 cd lab
 git checkout ch26
 make check
 make up
-make ps
 ```
 
 Prometheus is on `https://localhost:8443/prometheus/` with the credentials
-`obslab` / `obslab`, Grafana on `http://localhost:3000/`, Snip on
-`http://localhost:8080/`, and the load generator's control API on
-`http://localhost:8089/`. Put the injector into a steady state so that nothing
-but the thing you are studying moves:
+`obslab` / `obslab`, Grafana on `http://localhost:3000/`, and the load
+generator's control API on `http://localhost:8089/`. Put the injector into a
+steady state, so nothing but the thing you are studying moves:
 
 ```bash
 curl -s -XPOST http://localhost:8089/control \
   -d '{"rps":20,"route":"mix","error_ratio":0}'
 ```
 
-This chapter adds a second Prometheus, which is another two gigabytes of
-memory limit. The full stack with the overlay budgets around 4.5 GB of actual
-resident memory. If your machine is tight, run this chapter and then
-`make down` — nothing later in the book depends on the overlay staying up.
+The overlay adds a second Prometheus with the same two-gigabyte `mem_limit` as
+the first. That is a ceiling, not a cost: on this lab the primary sits in the
+low hundreds of megabytes, so budget a few hundred more rather than two
+gigabytes. Nothing later needs the overlay, so `make down` when you are done
+with it.
 
 ## Do you need any of this yet?
 
-There is a ladder here, and every rung is cheaper to climb than the one above
-it. Work it in order and stop at the first rung that solves your problem. Most
-people stop on rung two or three and never come back.
+There is a ladder here, and each rung costs more than the one before it. Work it
+in order and stop at the first rung that solves your problem. Most people stop
+on rung two or three and never come back.
 
-**Rung 1: reduce cardinality.** The documentation's own advice is that lowering
-the ingested sample rate is better done with fewer series than with a longer
-scrape interval, because samples within one series compress extremely well while
-each new series costs an index entry and a fresh chunk. You did this in Chapter
-24, "Cardinality: Detonate, Diagnose, Defuse". It is free, and it is usually where the win is.
+1. **Reduce cardinality.** The documentation's advice is that lowering the
+   ingested sample rate is better done with fewer series than with a longer
+   scrape interval: samples within one series compress extremely well, while
+   each new series costs an index entry and a fresh chunk. You did this in
+   Chapter 24, "Cardinality: Detonate, Diagnose, Defuse". It is free, and it is
+   usually where the win is.
+2. **Buy a bigger box.** Boring and usually correct. The rung the internet
+   skips.
+3. **Shorten local retention and ship the data elsewhere.** Keep two weeks
+   locally for the queries that must be fast, and `remote_write` everything to a
+   system whose job is to keep it for a year. The modern default answer.
+4. **Run a highly available pair.** Two identical servers. Buys *availability*,
+   not capacity — both of them do all of the work.
+5. **Shard by target**, so each server holds a fraction. Buys capacity, costs
+   you global queries.
+6. **Federate aggregates only.** A small global view, and not a scaling
+   technique, for reasons this chapter makes concrete.
+7. **Adopt a horizontally scalable backend.** Thanos, Mimir, VictoriaMetrics,
+   Cortex, or somebody's managed service.
 
-**Rung 2: buy a bigger box.** Boring and usually correct. This is the rung the
-internet skips.
+The trigger for rungs 4 and up is rarely ingestion rate. It is **blast radius**.
+One Prometheus is a single point of failure for both your dashboards and your
+alerting, and its restart is not instant: on startup it replays the write-ahead
+log, and that replay takes time proportional to how much data was in the head
+block. Chapter 25 put `prometheus_tsdb_data_replay_duration_seconds` on the meta
+dashboard for this reason. Ask this lab what its last replay cost:
 
-**Rung 3: shorten local retention and ship the data somewhere else.** Keep two
-weeks locally for the queries that must be fast, and `remote_write` everything
-to a system whose job is to keep it for a year. This is the modern default
-answer and the second half of this chapter.
+```bash
+curl -sk -u obslab:obslab -G \
+  https://localhost:8443/prometheus/api/v1/query \
+  --data-urlencode 'query=prometheus_tsdb_data_replay_duration_seconds' \
+  | jq -r '.data.result[0].value[1]'
+```
 
-**Rung 4: run a highly available pair.** Two identical servers. This buys
-*availability*, not capacity — both of them do all of the work.
-
-**Rung 5: shard by target.** Split the targets across several servers so each
-holds a fraction. This buys capacity and costs you global queries.
-
-**Rung 6: federate aggregates only.** A small global view over several servers.
-Not a scaling technique, for reasons this chapter makes concrete.
-
-**Rung 7: adopt a horizontally scalable backend.** Thanos, Mimir,
-VictoriaMetrics, Cortex, or somebody's managed service.
-
-The trigger for rungs 4 and above is rarely ingestion rate. It is **blast
-radius**. One Prometheus is a single point of failure for both your dashboards
-and your alerting, and its restart is not instant: on startup it replays the
-write-ahead log, and that replay takes time proportional to how much data was in
-the head block. Chapter 25 put `prometheus_tsdb_data_replay_duration_seconds` on
-the meta dashboard for exactly this reason. On this lab the replay is a couple of
-seconds. On a ten-million-series server it can be many minutes, and during those
-minutes nothing evaluates and nothing answers.
+A few thousandths of a second — this lab had almost nothing in its head when it
+last started. On a ten-million-series server the same number is minutes, and
+during those minutes nothing evaluates and nothing answers.
 
 Multi-region is the other trigger, and it is not subtle: if you have servers on
 two continents and you want one query to span both, no amount of vertical sizing
@@ -129,14 +129,13 @@ make scale-up
 
 That is `docker compose -f compose.yaml -f compose.scale.yaml up -d`, and it
 starts one new service, `prometheus-b`, on `http://localhost:9099/`. It runs the
-same pinned image as the primary, reads the same `prometheus/prometheus.yml`
+same pinned image as the primary, reads the same `lab/prometheus/prometheus.yml`
 through the same read-only bind mount, discovers the same containers through the
 same Docker socket, and writes to its own named volume.
 
 There is no clustering here. No leader election, no replication protocol, no
-shared state. Two copies of the same program doing the same work in parallel,
-and the only thing that distinguishes them is one label. Look at the top of
-`lab/prometheus/prometheus.yml`:
+shared state — two copies of the same program doing the same work in parallel,
+and the only thing that distinguishes them is one label:
 
 ```yaml
 external_labels:
@@ -154,18 +153,20 @@ file to keep in sync. Write a literal `a` there and both servers claim to be
 Chapter 12, "`prometheus.yml` in Full: Service Discovery and Relabeling", made
 you prove that external labels are attached on the way *out* and never appear on
 locally stored series. That property is what makes everything here possible, so
-re-prove it now that it matters. Ask the primary whether it can see its own
-replica label:
+re-prove it now that it matters:
 
 ```bash
 curl -sk -u obslab:obslab -G \
   https://localhost:8443/prometheus/api/v1/query \
-  --data-urlencode 'query=up{replica!=""}' | jq '.data.result'
+  --data-urlencode 'query=up{replica!=""}' | jq -c '.data.result'
 ```
 
-The answer is `[]`. Not an error, not a value — an empty result. Every series in
-both databases is label-for-label identical. Now ask `prometheus-b` what it
-thinks it is called:
+```text
+[]
+```
+
+Not an error, not a value — an empty result. Every series in both databases is
+label-for-label identical. Now ask `prometheus-b` what it calls itself:
 
 ```bash
 curl -s http://localhost:9099/api/v1/status/config \
@@ -173,14 +174,14 @@ curl -s http://localhost:9099/api/v1/status/config \
 ```
 
 You get `cluster: obslab` and `replica: b`. The distinguishing label exists only
-in the configuration and only takes effect on data leaving the server.
+in the configuration, and only takes effect on data leaving the server.
 
 !!! warning "The second replica arrived without the lock"
     Chapter 25 took `:9090` away from the primary and put it behind `edge`
     with a password. `prometheus-b` publishes `9099` straight to your host
-    with no authentication at all, because this is a laboratory and you are
-    about to need a second window. In a real deployment the replica is exactly
-    as sensitive as the primary — same data, same admin API, and
+    with no authentication, because this is a laboratory and you are about to
+    need a second window. In a real deployment the replica is exactly as
+    sensitive as the primary — same data, same admin API, and
     `compose.scale.yaml` hands it `--web.enable-admin-api` too. A second copy
     of a system is a second copy of its attack surface.
 
@@ -225,42 +226,42 @@ done
 1789603236.904
 ```
 
-Seven and a bit seconds apart, and it will be a different gap every time you
-run it. Neither number is wrong. The two servers started at different moments,
-so their fifteen-second scrape cycles sit at different offsets, and each one is
-telling you the truth about the last time *it* looked.
+Seven and a bit seconds apart, and it will be a different gap every time you run
+it. Neither number is wrong. The two servers started at different moments, so
+their fifteen-second scrape cycles sit at different offsets, and each is telling
+you the truth about the last time *it* looked.
 
 Now see it as a picture, which is how you will actually meet it. Grafana already
-knows about the replica, and you did not have to teach it: this chapter adds a
-second data source named **Prometheus B**, uid `prometheus-b`, to
-`provisioning/datasources/prometheus.yaml` — the only file outside the overlay
-that ch26 touches. Its health check fails whenever the overlay is down, which is
-harmless, because no dashboard points at it. Open the Snip RED dashboard, find
-the "Request rate by route" panel, set the dashboard refresh to five seconds,
-and edit the panel's data source. Flip it
-from **Prometheus** to **Prometheus B** and back a few times while it is
-refreshing. The line does not stay still. The right-hand edge jumps, the last
-point moves up and down by a percent or two, and if one server missed a scrape
-that the other one caught, a gap appears and disappears depending on which one
-you asked.
+knows about the replica: this chapter adds a second data source named
+**Prometheus B**, uid `prometheus-b`, to
+`lab/provisioning/datasources/prometheus.yaml` — the only file outside the
+overlay that `ch26` touches. Its health check fails whenever the overlay is
+down, which is harmless, because no dashboard points at it.
 
-One thing worth noticing while you are there: panels over long windows — the
-thirty-day SLO rungs from Chapter 20, "SLIs, SLOs and Error Budgets" — are empty
-on **Prometheus B**, because `make backfill` wrote its blocks into the primary's
-volume and the replica has only the history it has scraped for itself.
+Open the **Snip RED** dashboard, find the "Request rate by route" panel, set the
+dashboard refresh to five seconds, and edit the panel's data source. Flip it from
+**Prometheus** to **Prometheus B** and back a few times while it is refreshing.
+The line does not stay still. The right-hand edge jumps, the last point moves up
+and down by a percent or two, and if one server missed a scrape that the other
+one caught, a gap appears and disappears depending on which one you asked.
 
-!!! trap "The load balancer that is not high availability"
+Notice too that panels over long windows — the thirty-day rungs from Chapter 20,
+"SLIs, SLOs and Error Budgets" — are empty on **Prometheus B**, because
+`make backfill` wrote its blocks into the primary's volume and the replica has
+only the history it has scraped for itself.
+
+!!! pitfall "The load balancer that is not high availability"
     The obvious next move is to put both servers behind a load balancer — one
     address that forwards each request to whichever backend is healthy — and
     point Grafana at that address. It looks like the fix. It is the bug.
 
-    Each panel refresh is a separate HTTP request, so each refresh lands on a
-    different backend, and you get the flap above on *every* panel at *every*
+    Each panel refresh is a separate HTTP request, so each lands on a
+    different backend, and you get the flap on *every* panel at *every*
     refresh rather than only when you flip a data source by hand. A "Last"
-    stat panel bounces between two values. A short `rate()` window wobbles. A
-    scrape one server missed appears and vanishes. Worse, it is now
-    intermittent and unreproducible, so you will spend an afternoon looking
-    for a bug in your query.
+    stat panel bounces between two values; a short `rate()` window wobbles; a
+    scrape one server missed appears and vanishes. Worse, it is intermittent
+    and unreproducible, so you will spend an afternoon hunting a bug in your
+    query.
 
     **Grafana does not deduplicate Prometheus replicas.** There is no setting
     for it and no plugin option: a Prometheus data source is one HTTP endpoint
@@ -269,15 +270,13 @@ volume and the replica has only the history it has scraped for itself.
     data — never in the load balancer.
 
 There are three real answers, in increasing order of machinery. The smallest is
-what you just did by hand: one data source per replica, switched when one is
-down. It deduplicates nothing and it flaps not at all, and plenty of small teams
-run exactly that. The middle answer is a replica-aware query layer — Thanos
-Query is the usual one — which merges series differing only by the replica label
-and fills gaps in one replica from the other. The largest is to deduplicate on
-ingest at a `remote_write` receiver, which is what Mimir, Cortex and Amazon's
-managed service do.
-
-All three need to know which label identifies a replica. This is where the field
+what you did by hand: one data source per replica, switched when one is down. It
+deduplicates nothing and flaps not at all, and plenty of small teams run exactly
+that. The middle answer is a replica-aware query layer — Thanos Query is the
+usual one — which merges series differing only by the replica label and fills
+gaps in one replica from the other. The largest is to deduplicate on ingest at a
+`remote_write` receiver, as Mimir, Cortex and Amazon's managed service do. All
+three need to know which label identifies a replica, and this is where the field
 disagrees with itself.
 
 ## Three conventions that contradict each other
@@ -300,13 +299,12 @@ lab's `replica: a` / `replica: b` is already in Thanos's shape.
 
 Mimir and Cortex — and Amazon Managed Service for Prometheus, which is built on
 Cortex — use an **HA tracker** in the component that accepts writes. It keys on
-`cluster` and `__replica__`, elects one replica per cluster as the leader, and
-drops the other's samples with HTTP 202 so the sender does not retry. Leadership
-fails over if the leader goes quiet for about thirty seconds. Crucially the
-`__replica__` label is **stripped** from accepted samples, so what gets stored
-is identical whichever replica won — which is why dashboards do not flap across
-a failover. Note the name: two leading and two trailing underscores, and
-`__replica__` rather than `replica`:
+`cluster` and `__replica__`, elects one replica per cluster as leader, and drops
+the other's samples with HTTP 202 so the sender does not retry; leadership fails
+over if the leader goes quiet for about thirty seconds. Crucially `__replica__`
+is **stripped** from accepted samples, so what gets stored is identical
+whichever replica won — which is why dashboards do not flap across a failover.
+Note the name: two leading and two trailing underscores, not `replica`:
 
 ```yaml
 external_labels:
@@ -339,16 +337,14 @@ replicas must be **byte-identical**, which is precisely what Thanos forbids.
 
 Federation is the oldest answer to "I have several Prometheus servers and I want
 one view", and it is worth ten minutes because you will meet it in other
-people's configs and because understanding what it is makes the argument against
-it obvious.
+people's configs, and because knowing what it is makes the argument against it
+obvious.
 
 A Prometheus server exposes `/federate`. You ask it, with one or more `match[]`
 URL parameters, for the current value of every series matching those selectors,
 and it renders them into a single exposition-format response. Then you scrape
-that response with an ordinary scrape job. That is the entire mechanism.
-
-Here is the canonical configuration, in the shape the official documentation
-uses:
+that response with an ordinary scrape job. That is the entire mechanism, in the
+shape the official documentation uses:
 
 ```yaml
 scrape_configs:
@@ -370,54 +366,56 @@ when a scraped sample carries a label the scrape job also sets, the job's value
 wins and the original is renamed to `exported_<label>`. A federated response
 carries the *original* `job` and `instance` from the child server, so with the
 default you would rewrite every federated series' `job` to `federate` and every
-`instance` to `prometheus-b:9090`, and file the truth away under
-`exported_job` and `exported_instance`. Your data survives, renamed beyond
-recognition, and every query and every rule that referenced it stops matching.
+`instance` to `prometheus-b:9090`, filing the truth away under `exported_job`
+and `exported_instance`. Your data survives, renamed beyond recognition, and
+every query and rule that referenced it stops matching.
 
 `{__name__=~"job:.*"}` is the more interesting line, because it is the official
 example's own selector and it is not an accident. The `job:` prefix is the
 recording-rule naming convention from Chapter 15, "Recording Rules" —
 `level:metric:operations`. The official example of how to federate is an example
-of federating **recording-rule output**. This lab's rules follow the same
-convention, so that selector matches `job:up:ratio`,
-`job:snip_sli_availability:ratio_rate5m` and their siblings, and matches no raw
-series at all.
+of federating **recording-rule output**. This lab's rules follow that
+convention, so the selector matches `job:up:ratio`,
+`job:snip_sli_availability:ratio_rate5m` and their siblings, and no raw series
+at all.
 
-You can see the size difference for yourself. `prometheus-b` has no password on
-it, so ask it for the aggregates and then for everything:
+You can see the size difference for yourself. Ask the primary for the
+aggregates, then for everything:
 
 ```bash
-curl -s -G http://localhost:9099/federate \
+P=https://localhost:8443/prometheus
+curl -sk -u obslab:obslab -G "$P/federate" \
   --data-urlencode 'match[]={__name__=~"job:.*"}' | wc -c
-
-curl -s -G http://localhost:9099/federate \
+curl -sk -u obslab:obslab -G "$P/federate" \
   --data-urlencode 'match[]={__name__!=""}' | wc -c
 ```
 
-The first is a few kilobytes. The second is several megabytes on a laptop lab
-with fourteen targets, and it is one HTTP response, rendered in full, every
-scrape interval. Scale that mentally to a server with a million series and you
-have the first of five reasons federation is not a scaling strategy:
+The first lands around seven kilobytes — the recording rules are a fixed set of
+roughly fifty-five series, so that number is stable. The second is megabytes,
+and it climbs every time you run it, because `catalog`'s planted unbounded label
+from Chapter 7, "Labels and the Cardinality Arithmetic You Must Do", is still
+minting series. That second body is one HTTP response, rendered in full, every
+scrape interval. Scale it mentally to a million series and you have the first of
+five reasons federation is not a scaling strategy:
 
-1. **It is a scrape, so it inherits every scrape limit.** Scrape timeouts, body
-   size limits, and a memory spike on both ends, every interval. The
-   `sample_limit` of Chapter 24, "Cardinality: Detonate, Diagnose, Defuse", is
-   all-or-nothing: breach it and the whole scrape fails.
+1. **It is a scrape, so it inherits every scrape limit** — timeouts, body size
+   limits, and a memory spike on both ends, every interval. Chapter 24's
+   `sample_limit` is all-or-nothing: breach it and the whole scrape fails.
 2. **You get one sample per series per scrape, not the child's history.** Child
    at 15 s, parent at 60 s, and you have silently thrown away three quarters of
    the data — `rate()` at the parent is correspondingly less accurate.
 3. **There is no backfill.** If the parent is down for ten minutes, those ten
-   minutes are gone from the parent forever. The child still has them; nothing
-   moves them across.
+   minutes are gone from it forever. The child still has them; nothing moves
+   them across.
 4. **It does not help the child**, which stores everything with its own
    retention exactly as before. You have added load, not removed any.
-5. **It does not deduplicate.** Federating both replicas of an HA pair gives
-   you both copies and no way to merge them.
+5. **It does not deduplicate.** Federating both replicas of an HA pair gives you
+   both copies and no way to merge them.
 
 The rule to carry away: federate recording-rule output, a few thousand series at
 most, when you want one small global view. If you want all of the data in one
 place, that is what `remote_write` is for. This is reasoned guidance rather than
-a quoted prohibition — the documentation frames hierarchical federation as
+a quoted prohibition — but the documentation frames hierarchical federation as
 collecting aggregated, job-level data, and its own example federates nothing
 else.
 
@@ -426,25 +424,25 @@ else.
 `remote_write` is the scaling primitive. The sending server keeps scraping and
 keeps serving queries exactly as before; in parallel, a component reads the
 write-ahead log as it is written and pushes the samples to an HTTP endpoint.
-Everything that matters about it is in one config block, and almost every blog
-post you will find quotes at least one default that is no longer true.
+Everything that matters is in one config block, and almost every blog post you
+will find quotes at least one default that is no longer true.
 
 `prometheus-b` is already a receiver: `compose.scale.yaml` starts it with
 `--web.enable-remote-write-receiver`, which turns on `POST /api/v1/write`. The
 sending half is not shipped, because it is yours to write. Open
-`lab/prometheus/prometheus.yml` and add this block at the top level — next to
-`alerting:` and `rule_files:`, not inside `scrape_configs:`:
+`lab/prometheus/prometheus.yml` and add this block at the top level — a sibling
+of `alerting:` and `rule_files:`, not inside `scrape_configs:`:
 
 ```yaml
 # (ch26) Ship one job's worth of data to the second replica.
 remote_write:
   - url: http://prometheus-b:9090/api/v1/write
     name: prometheus-b
-    # Choose what leaves. Without this you would copy the entire
-    # database onto a second disk on the same laptop, which is
-    # precisely the mistake this chapter is about. `job=prometheus`
-    # is this server's own self-metrics: if the primary dies, its
-    # own health history survives on the replica.
+    # Choose what leaves. Without this you would copy the whole
+    # database onto a second disk on the same laptop, which is the
+    # mistake this chapter is about. `job=prometheus` is this
+    # server's own self-metrics: if the primary dies, its health
+    # history survives on the replica.
     write_relabel_configs:
       - source_labels: [job]
         regex: prometheus
@@ -453,15 +451,14 @@ remote_write:
       # 50 in production. 10 here so the ceiling is somewhere you
       # could actually reach on a laptop.
       max_shards: 10
-      # The guidance is capacity = 3-10x max_samples_per_send.
-      # 2500 / 500 = 5.
+      # Guidance: capacity = 3-10x max_samples_per_send.
       max_samples_per_send: 500
       capacity: 2500
 ```
 
-The primary runs with `--config.auto-reload`, so it will pick this up on its
-own within the poll interval; `make reload` forces it immediately. A scrape or
-two later, confirm the queue exists:
+The primary runs with `--config.auto-reload`, so it picks this up on its own
+within the poll interval; `make reload` forces it immediately. A scrape or two
+later, confirm the queue exists:
 
 ```bash
 curl -sk -u obslab:obslab -G \
@@ -470,12 +467,12 @@ curl -sk -u obslab:obslab -G \
   | jq -r '.data.result[0]'
 ```
 
-You get one series with `remote_name="prometheus-b"` and
-`url="http://prometheus-b:9090/api/v1/write"`, and a value of `1`.
+You get one series carrying `remote_name="prometheus-b"` and
+`url="http://prometheus-b:9090/api/v1/write"`, with a value of `1`.
 
-Now the defaults, because this is the table people get wrong. Every value below
-is the released 3.13.1 default, and the right-hand column is what you will find
-in writing that predates it.
+Now the defaults, because this is the table people get wrong. Every value in the
+middle column is the released 3.13.1 default, and the right-hand column is what
+you will find in writing that predates it.
 
 | `queue_config` field | Default in 3.x | Commonly printed |
 |---|---|---|
@@ -490,10 +487,10 @@ in writing that predates it.
 | `retry_on_http_429` | **false** | — |
 
 Three more defaults live outside `queue_config` and matter just as much.
-`send_exemplars` is `false`. `send_native_histograms` is `false`.
-And `enable_http2` is `false` **for remote write specifically** — it is `true`
-for scraping, which is exactly the kind of asymmetry that makes people assume
-they have it backwards.
+`send_exemplars` is `false`. `send_native_histograms` is `false`. And
+`enable_http2` is `false` **for remote write specifically** — it is `true` for
+scraping, which is exactly the kind of asymmetry that makes people assume they
+have it backwards.
 
 !!! note "Native histograms, exactly"
     Native histograms are stable since Prometheus 3.8.0; the
@@ -514,10 +511,10 @@ they have it backwards.
 is surprising and the consequence is data loss. HTTP 429 means "you are sending
 too fast"; by default Prometheus does not retry those requests, it drops the
 samples quietly. Managed backends throttle with 429 as a matter of routine.
-Amazon's, for instance, throttles with a token bucket and rejects the *entire*
-request if it is one sample over budget, and separately refuses any sample more
-than an hour old. Put those two together and a long throttling episode against a
-default-configured sender is permanent, silent loss.
+Amazon's throttles with a token bucket and rejects the *entire* request if it is
+one sample over budget, and separately refuses any sample more than an hour old.
+Together those make a long throttling episode against a default-configured
+sender permanent, silent loss.
 
 !!! sidebar "How Prometheus decides how many shards to run"
     Skippable. A **shard** here is one concurrent stream of batches to the
@@ -528,9 +525,9 @@ default-configured sender is permanent, silent loss.
     tolerates about 30% more shards than it needs before scaling back down, so
     the number does not oscillate.
 
-    Two consequences. Your job is to set the ceiling and stay out of the way —
+    Two consequences. Your job is to set the ceiling and stay out of the way:
     the official guidance is that unless you are writing to a very slow
-    endpoint, `max_shards` rarely needs raising above its default. And each
+    endpoint, `max_shards` rarely needs raising from its default. And each
     shard holds `capacity + max_samples_per_send` samples, under 2 MB with the
     stock defaults; enabling remote write at all costs roughly 25% more
     memory.
@@ -571,26 +568,26 @@ PromQL", would have you write it exactly like that.
     counts what survived `write_relabel_configs` rather than what arrived
     before them.
 
-    A dashboard containing the block above is a dated artifact, not a style
-    choice. Replace it.
+    A dashboard containing that block is a dated artifact, not a style choice.
+    Replace it.
 
 Build the panel. Open the **obslab Meta-Monitoring** dashboard that Chapter 25
-provisioned, add a time series panel titled "Remote write lag", give it the
-expression above, and set the unit to seconds. Add a second panel for
+provisioned, add a time series panel titled "Remote write lag", give it that
+expression, and set the unit to seconds. Add a second panel for
 `prometheus_remote_storage_samples_pending`, which the documentation calls out
 as the first signal that you are falling behind: it moves before the lag does.
 
 Two more expressions belong in your head rather than on the dashboard. This one
-says whether you are saturated — if it sits at 1 for any length of time, the
-sender is at its ceiling and the ceiling is the problem:
+says whether you are saturated — sitting at 1 for any length of time means the
+sender is at its ceiling, and the ceiling is the problem:
 
 ```promql
 prometheus_remote_storage_shards
   / prometheus_remote_storage_shards_max
 ```
 
-And this one tells you what is being thrown away and why. The `reason` label
-takes values like `too_old` and `dropped_series`:
+This one says what is being thrown away and why; the `reason` label takes values
+including `too_old` and `dropped_series`:
 
 ```promql
 sum by (reason) (
@@ -601,9 +598,9 @@ sum by (reason) (
 ## Break it on purpose
 
 A lag panel that has only ever read zero has taught you nothing. Stop the
-receiver — not kill it, *pause* it, so that the socket stays open and the sender
+receiver — not kill it, *pause* it, so the socket stays open and the sender
 experiences a hang rather than a refusal, which is what a struggling backend
-actually feels like:
+feels like:
 
 ```bash
 docker compose -f compose.yaml -f compose.scale.yaml \
@@ -612,10 +609,11 @@ docker compose -f compose.yaml -f compose.scale.yaml \
 
 Watch the panel. Nothing happens for a few seconds — the sender is waiting out
 `remote_timeout`, which defaults to 30 s — and then the lag line leaves zero and
-climbs at one second per second, because `highest_timestamp` keeps advancing as
-new samples are appended while `highest_sent_timestamp` is frozen. That slope is
-diagnostic: a lag climbing at exactly 1 s/s means nothing at all is getting
-through. A lag climbing more slowly means you are behind but still moving.
+climbs at one second per second, because the highest queued timestamp keeps
+advancing as new samples are appended while the highest sent one is frozen. That
+slope is diagnostic: a lag climbing at exactly 1 s/s means nothing at all is
+getting through. A lag climbing more slowly means you are behind but still
+moving.
 
 Leave it for a minute, then let it go:
 
@@ -636,7 +634,8 @@ the backlog.
     With the overlay up and the `remote_write` block in place, run
     `make verify-ch26`. It takes about two minutes and twenty seconds, because
     it pauses the receiver for thirty and then gives the queue ninety to
-    drain. Expect:
+    drain. Among its running commentary are these seven checks, and it ends
+    `ch26: 7 passed, 0 failed` and `ch26 OK`:
 
     ```text
     PASS prometheus-b answers on http://localhost:9099
@@ -650,31 +649,27 @@ the backlog.
          lag while paused: 31.5s
       [ 10s] lag 0.421s
     PASS lag returned to under 30 s within two minutes
-
-    ch26: 7 passed, 0 failed
-    ch26 OK
     ```
 
-    Your series count depends on how many of Snip's routes have been
-    exercised; around 170 once every route has been hit at least once. The
-    timestamp gap is different every run, and that is the point of the check.
+    Only the `PASS` lines are fixed. Every indented figure differs run to run:
+    the series count depends on how many of Snip's routes have been exercised,
+    and the timestamp gap is the flap itself. What is checked is that the two
+    replicas *agree* on the count and *disagree* on the clock.
 
-    This target needs the overlay, so it is one of the few that cannot run on
-    the base stack: without `make scale-up` it reports that `prometheus-b` is
-    not answering and stops. Without the `remote_write` block it passes the
-    replica half and *skips* the lag half, printing the YAML you are missing
-    rather than calling a working lab broken.
+    This target needs the overlay, so it cannot run on the base stack: without
+    `make scale-up` it reports that `prometheus-b` is not answering and stops.
+    Without the `remote_write` block it passes the replica half and *skips* the
+    lag half, printing the YAML you are missing rather than calling a working
+    lab broken.
 
-One consequence of that script is worth knowing. It compares
-`count({job="snip-api"})` on both servers and expects them to agree within two
-series. If you remote-write *everything* into `prometheus-b` instead of one job,
-every Snip series arrives there a second time carrying `replica="a"`, the counts
-differ by a factor of two, and the check fails — correctly, because you have
-just built the thing this chapter warns about. The `write_relabel_configs` block
-above is what keeps the two halves of the script compatible.
+One consequence is worth knowing. If you remote-write *everything* into
+`prometheus-b` instead of one job, every Snip series arrives there a second time
+carrying `replica="a"`, the two counts differ by a factor of two, and the check
+fails — correctly, because you have built the thing this chapter warns about.
+The `write_relabel_configs` block is what keeps the two halves compatible.
 
 One last thing to look at, and it is the clearest demonstration of external
-labels in the book. Ask **`prometheus-b`** how many of the primary's
+labels anywhere in the lab. Ask **`prometheus-b`** how many of the primary's
 self-metrics it holds, grouped by replica:
 
 ```bash
@@ -690,35 +685,84 @@ becomes visible at exactly the moment the data crosses a server boundary.
 
 ## Remote Write 2.0, and a 2xx that means nothing
 
-There is a version 2 of the remote write protocol. As of this writing its spec
-is at **2.0-rc.4**, its status is **experimental**, and `protobuf_message` still
+There is a version 2 of the remote write protocol. Its spec is at **2.0-rc.4**,
+its status is **experimental**, and on the sending side `protobuf_message` still
 defaults to `prometheus.WriteRequest` — version 1. Anyone who tells you 2.0 is
 the default is repeating something they read rather than something they checked.
 
 What it adds is worth knowing: a symbol table, so every label name and value is
 written once per request and referenced by index, which is most of the bandwidth
-win; metadata inline with each series instead of on a separate one-minute
-cadence; start timestamps; native histograms unconditionally, making
-`send_native_histograms` a no-op; and mandatory
-`X-Prometheus-Remote-Write-*-Written` response headers.
+win; metadata inline with each series instead of on a separate cadence; start
+timestamps; native histograms unconditionally, making `send_native_histograms` a
+no-op; and mandatory `X-Prometheus-Remote-Write-*-Written` response headers.
 
-Switching a sender is one line:
+Switching the sender is one line in the `remote_write` block:
 
 ```yaml
-remote_write:
-  - url: http://prometheus-b:9090/api/v1/write
     protobuf_message: io.prometheus.write.v2.Request
 ```
 
-Try it against this lab and it breaks, on purpose. The receiver flag
-`--web.remote-write-receiver.accepted-protobuf-messages` defaults to version 1
-only, and `compose.scale.yaml` does not widen it. `prometheus-b` therefore
-answers **415 Unsupported Media Type**, and because senders must not retry a 4xx
-that is not 429, nothing gets through. You will see it on the panel you just
-built: the lag climbs at 1 s/s and never comes back down. Take the line out
-again.
+Reload, and watch the lag panel. It stays at zero. The write succeeded.
 
-That is the *good* failure. Here is the bad one.
+That is worth dwelling on, because a great deal of writing says it should not
+have. The receiving side has a flag listing which protobuf messages it accepts,
+and for much of the 3.x line that list held version 1 only, so a stock receiver
+answered 415 to a v2 payload. On the pinned 3.13.1 it does not. Ask it:
+
+```bash
+curl -s http://localhost:9099/api/v1/status/flags | jq -r \
+  '.data["web.remote-write-receiver.accepted-protobuf-messages"]'
+```
+
+```text
+prometheus.WriteRequest,io.prometheus.write.v2.Request
+```
+
+`compose.scale.yaml` never sets that flag. Both entries are the default on this
+release — a good lesson in its own right: check the flag rather than the blog
+post, because `/api/v1/status/flags` reports what the process is really doing.
+
+So to see the rejection you now have to ask for it, by running a receiver
+narrowed to version 1. It needs no mounts, because the image ships a usable
+default config:
+
+```bash
+V1=prometheus.WriteRequest
+docker run -d --rm --name obslab-rw1 --network obsnet \
+  quay.io/prometheus/prometheus:v3.13.1 \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --web.enable-remote-write-receiver \
+  --web.remote-write-receiver.accepted-protobuf-messages=$V1
+```
+
+`promtool` can push a remote-write payload without a sender, which makes this a
+two-command experiment rather than a config edit:
+
+```bash
+V2=io.prometheus.write.v2.Request
+docker run --rm --network obsnet --entrypoint /bin/sh \
+  quay.io/prometheus/prometheus:v3.13.1 -c \
+  "printf 'demo_total 1\n' > /tmp/m;
+   promtool push metrics --protobuf_message=$V2 \
+     http://obslab-rw1:9090 /tmp/m"
+```
+
+!!! trap "Sending v2 to a receiver that only accepts v1"
+    ```text
+    Parsing metrics file /tmp/m
+      FAILED: server returned HTTP status 415 Unsupported Media
+      Type: io.prometheus.write.v2.Request protobuf message is not
+      accepted by this server; only accepts prometheus.WriteRequest
+    ```
+
+    That is the *good* failure: it names both the message you sent and the one
+    the server wanted. Senders must not retry a 4xx that is not 429, so nothing
+    gets through. Re-run with `--protobuf_message=prometheus.WriteRequest` and
+    it prints `SUCCESS` against the same container. Clean up with
+    `docker rm -f obslab-rw1`.
+
+Here is the bad failure, and it is the reason the response headers were made
+mandatory.
 
 !!! pitfall "A 2xx that wrote nothing"
     A version 1.0 receiver that does not inspect the `Content-Type` header
@@ -734,8 +778,9 @@ That is the *good* failure. Here is the bad one.
     at a receiver you did not write, check for those headers before you trust
     the green dashboard.
 
-    Prometheus-as-a-receiver does check the header, which is why this lab
-    gives you a clean 415 instead. Not every receiver in the world does.
+    Prometheus-as-a-receiver does check the content type, which is why the
+    narrowed container gives you a clean 415 instead. Not every receiver in
+    the world does.
 
 ## Agent mode
 
@@ -745,10 +790,10 @@ binary with one flag. It is listed as stable for 3.x; if you read that it is
 experimental, that page is old.
 
 `--agent` switches off the TSDB, rule evaluation and alerting. Its write-ahead
-log is a different animal: it deletes data as soon as it has been written
-successfully, and if the remote endpoint is unreachable it buffers to disk for
-up to two hours and then starts losing data. Everything you gave up has to
-happen wherever you are shipping to.
+log is a different animal: it removes data as soon as it has been written
+successfully, and if the remote endpoint is unreachable it persists to disk
+temporarily — currently limited to a two-hour buffer. Everything you gave up has
+to happen wherever you ship to.
 
 Try it for five minutes. Write `lab/prometheus/agent.yml`:
 
@@ -795,11 +840,10 @@ curl -s -G http://localhost:9099/api/v1/query \
   | jq -r '.data.result[0].metric'
 ```
 
-One series comes back, carrying `job="agent-demo"` and `instance="snip-api:8000"`
-from the config and `cluster="obslab"` with `replica="agent"` from the external
-labels. The agent is working.
-
-Now try to query the agent itself. `promtool` lives inside the same image:
+One series comes back, carrying `job="agent-demo"` and
+`instance="snip-api:8000"` from the config, and `cluster="obslab"` with
+`replica="agent"` from the external labels. The agent works. Now try to query
+the agent itself — `promtool` lives inside the same image:
 
 ```bash
 docker run --rm --network obsnet \
@@ -809,36 +853,31 @@ docker run --rm --network obsnet \
 ```
 
 You do not get a result. You get an error and a non-zero exit status, because
-there is no query API on that port to answer with — the exact wording depends on
-your build, but the absence of an answer does not. That is agent mode's whole
-trade: it gives up being a database in exchange for being small. Clean up:
-
-```bash
-docker stop obslab-agent
-```
+there is no query API on that port to answer with. That is agent mode's whole
+trade: it gives up being a database in exchange for being small. Clean up with
+`docker stop obslab-agent`.
 
 Two alternatives you will meet. **Grafana Alloy** is the successor to Grafana
-Agent, which reached end of life on 2025-11-01 in all of its modes — so any
+Agent, which reached end of life on 2025-11-01 in all of its modes — so a
 tutorial telling you to deploy Grafana Agent is describing a dead product.
-**vmagent**, from the VictoriaMetrics project, adds built-in sharding and disk
+**vmagent**, from the VictoriaMetrics project, adds sharding and disk
 buffering.
 
 ## `remote_read`, and why you point Grafana somewhere else
 
 There is a `remote_read` to match `remote_write`, and it is a trap. It fetches
-*raw series* for a set of matchers and a time range from the remote end and then
+*raw series* for a set of matchers and a time range from the remote end, then
 evaluates all of the PromQL locally. There is no pushdown: a year-long
-`sum(rate(...))` will try to stream a year of raw samples into your local
-Prometheus before it computes anything. It is also listed as unstable for 3.x. Its
-legitimate uses are narrow — reading data out of an old server during a
-migration, or blending a small remote dataset with `required_matchers` and
-`read_recent: false`. It is not how you query long-term storage.
+`sum(rate(...))` tries to stream a year of raw samples into your local
+Prometheus before it computes anything. It is also listed as unstable for 3.x.
+Its legitimate uses are narrow — migrating data off an old server, or blending a
+small remote dataset with `required_matchers` and `read_recent: false`.
 
 The way you actually query long-term storage is that Thanos, Mimir, Cortex and
 VictoriaMetrics all expose a *Prometheus-compatible query API*, and you point
 Grafana at that instead of at a Prometheus. Your dashboards do not change. Your
 PromQL does not change. That is the punchline of the whole chapter, and it is
-why the comparison below is about operations rather than query languages.
+why the comparison that follows is about operations rather than query languages.
 
 One more technique to name and dismiss. Chapter 12 introduced `hashmod` as a
 relabel action and did not use it; sharding by target is what it is for. Give
@@ -851,23 +890,20 @@ running agents and letting a scalable backend shard for them.
 
 ## The map
 
-Everything below solves the same problem the same way. Get data off the
+Every system here solves the same problem the same way. Get data off the
 Prometheus box — either by uploading its finished two-hour blocks to **object
 storage** (a bucket: S3, GCS, Azure Blob, MinIO — effectively infinite, cheap,
 durable, high-latency, no indexes) or by receiving `remote_write` into their own
 ingesters. Put a stateless query layer in front that merges recent data with
 older data from the bucket and speaks the Prometheus HTTP API. Compact and
-downsample in the background so year-long queries stay cheap.
-
-This is a map, not a tutorial. None of these is something you deploy in your
-first year, and each would be its own book.
+downsample in the background so year-long queries stay cheap. This is a map,
+not a tutorial: none of these is something you deploy in your first year.
 
 | | Thanos | Mimir | VictoriaMetrics |
 |---|---|---|---|
 | Version | v0.42.2 | 3.1.x | v1.148.x |
 | License | Apache-2.0 | AGPL-3.0 | Apache-2.0 |
 | Prometheus | Adds on to yours | Replaces storage | Replaces storage |
-| Storage | Object storage | Object storage | Local disk |
 | Smallest sane | 5 components | one process | **one binary** |
 
 Thanos bolts onto the servers you already have: a sidecar next to each
@@ -879,18 +915,18 @@ ever run against a single bucket, because object stores have no safe locking and
 two compactors corrupt data in a way with no easy repair.
 
 Mimir is a Cortex fork that replaces Prometheus's storage entirely — you write
-into it and you query it. Multi-tenant by default, meaning one deployment
-serving several independent teams whose data must not mix. Pick it for a platform team
-on Kubernetes with real tenant isolation requirements; its floor of operational
-complexity is genuinely higher than the others'.
+into it and you query it — and is multi-tenant by default, meaning one
+deployment serving several teams whose data must not mix. Pick it for a platform
+team with real isolation requirements; its floor of operational complexity is
+genuinely higher than the others'.
 
 VictoriaMetrics is a from-scratch database that speaks Prometheus's ingestion
 and query APIs, stores on ordinary disks, and runs as a single binary on one VM.
-It queries in MetricsQL, a superset of PromQL with some deliberate behavioral
-differences. Pick it for the least operational surface per unit of capacity.
-Watch two things: downsampling and retention filters are Enterprise features,
+It queries in MetricsQL, a superset of PromQL with deliberate behavioral
+differences. Pick it for the least operational surface per unit of capacity, and
+watch two things: downsampling and retention filters are Enterprise features,
 and `-retentionPeriod` is in **months** when you give it no unit, so
-`-retentionPeriod=7` is seven months and not seven days.
+`-retentionPeriod=7` is seven months, not seven days.
 
 That leaves one self-hosted system and three services:
 
@@ -903,8 +939,8 @@ That leaves one self-hosted system and three services:
 
 Cortex is not dead. The 2022 story — Grafana forked it into Mimir, everyone
 left — was true at the time and is stale now: it is CNCF Incubating, not
-archived, and shipped v1.21.1 in June 2026 under new maintainers. Where you are
-most likely to meet it is underneath Amazon's managed service.
+archived, and shipped v1.21.1 in June 2026 under new maintainers. You are most
+likely to meet it underneath Amazon's managed service.
 
 Grafana Cloud's free tier publishes a 14-day retention; it does not publish an
 active-series number on that page, so do not plan against one you read
@@ -913,12 +949,11 @@ SigV4-signed endpoint, which is why the `sigv4:` block exists in the
 `remote_write` config. Its query time range is capped at 95 days even though it
 stores far longer — the sort of asymmetry that only bites after you commit.
 
-Google Cloud Managed Service for Prometheus is the trap, because everything else
-on this list makes you assume it works like AMP. It does not accept
-`remote_write` at all. Prometheus's own configuration reference says so, in a
-warning inside the `google_iam` block: remote write is not supported by Google
-Cloud, and the setting is reserved for future use. On GCP you run their own
-collectors instead.
+Google Cloud Managed Service for Prometheus is the trap, because every other
+entry makes you assume it works like AMP. It does not accept `remote_write` at
+all. Prometheus's own configuration reference says so, in a warning inside the
+`google_iam` block: remote write is not supported by Google Cloud, and the
+setting is reserved for future use. On GCP you run their collectors instead.
 
 ### Alertmanager, in two sentences
 
@@ -947,32 +982,30 @@ leaving real gaps in your graphs.
 **Copying `queue_config` from a blog post.** `max_shards` is 50, not 200.
 `max_samples_per_send` is 2000, not 500. `max_backoff` is 5s, not 100ms.
 `send_exemplars` is false. Since 3.12.0 a malformed `queue_config` is rejected
-at load time instead of panicking at runtime — which catches typos and not
-wrong numbers.
+at load time instead of panicking at runtime — which catches typos and not wrong
+numbers.
 
-!!! pitfall "Ignoring 429"
-    `retry_on_http_429` defaults to **false**, so a throttled sender drops the
-    samples it could not send and says nothing. Against a managed backend this
-    is the most likely way you will lose data, and you will discover it from a
-    hole in a graph weeks later. Turn it on when your receiver throttles, and
-    pair it with a `sample_age_limit` so the queue does not spend its life
-    retrying samples the receiver will refuse as too old anyway.
+**Ignoring 429.** `retry_on_http_429` defaults to false, so a throttled sender
+drops the samples it could not send and says nothing. Against a managed backend
+this is the most likely way you will lose data, and you will find out from a
+hole in a graph weeks later. Turn it on when your receiver throttles, and pair
+it with a `sample_age_limit` so the queue does not spend its life retrying
+samples the receiver will refuse as too old anyway.
 
 **Using the deprecated lag metric.** The old server-wide
 `..._highest_timestamp_in_seconds` was deprecated in 3.7.0 along with the
 `*_in_total` family. If your expression contains
-`ignoring(remote_name, url) group_right`, it is a copy of a dashboard older
-than the metric it should be using.
+`ignoring(remote_name, url) group_right`, it is a copy of a dashboard older than
+the metric it should be using.
 
-**Federating everything.** `/federate` is a scrape, it renders every matched
-series into one response every interval, it downsamples silently to the parent's
-interval, it cannot backfill, and it takes nothing off the child. Federate
-recording-rule output or do not federate.
-
-**Forgetting `honor_labels: true` on a federation job.** The parent overwrites
-`job` and `instance` on everything it federates and files the originals under
-`exported_job` and `exported_instance`. Every rule and every dashboard that
-referenced them stops matching, and nothing errors.
+**Misusing federation.** Two mistakes, one section of the config. Federating
+everything: `/federate` is a scrape, it renders every matched series into one
+response every interval, it downsamples silently to the parent's interval, it
+cannot backfill, and it takes nothing off the child — so federate recording-rule
+output or do not federate. And forgetting `honor_labels: true`: the parent then
+overwrites `job` and `instance` on everything it federates, files the originals
+under `exported_job` and `exported_instance`, and every rule and dashboard that
+referenced them stops matching without erroring.
 
 ## Summary
 
@@ -981,19 +1014,19 @@ local retention and ship the data elsewhere. Everything past that is bought with
 operational complexity, and what usually buys it is blast radius rather than
 ingestion rate.
 
-Two identical Prometheus servers are not a cluster. They are two independent
-copies that happen to look at the same targets, which buys scrape availability
-and nothing else — and the moment you hide the pair behind one address you have
+Two identical Prometheus servers are not a cluster. They are independent copies
+that happen to watch the same targets, which buys scrape availability and
+nothing else — and the moment you hide the pair behind one address you have
 built a flap instead of a fix. `remote_write` is the primitive that matters: it
 runs beside everything else the server does, it survives the receiver going
-away, and it is configured almost entirely by leaving the defaults alone, as
-long as you know what they actually are.
+away, and it is configured mostly by leaving the defaults alone, as long as you
+know what they are.
 
 The durable takeaways:
 
 - External labels travel out and are invisible locally. That is what makes both
-  HA deduplication and remote write possible, and you can prove it with one
-  empty query result.
+  HA deduplication and remote write possible, and one empty query result proves
+  it.
 - A load balancer in front of an HA pair is not HA. Deduplication lives in a
   replica-aware query layer or at the receiver, never in the balancer.
 - Thanos wants different replica labels; VictoriaMetrics wants identical ones;
@@ -1005,8 +1038,9 @@ The durable takeaways:
   with no vector-matching modifiers; the version with `ignoring()` is deprecated.
 - `retry_on_http_429` is false by default, so throttled samples are dropped
   silently.
-- Remote Write 2.0 is still experimental and still not the default, and a v2
-  payload sent to a careless v1 receiver can return 2xx having stored nothing.
+- Remote Write 2.0 is still experimental and still not the sender's default,
+  although a 3.13.1 receiver does accept it; a v2 payload sent to a careless v1
+  receiver can return 2xx having stored nothing.
 - Agent mode is stable, scrapes and ships, and cannot answer a query. You do not
   query long-term storage through `remote_read` either — you point Grafana at
   the backend's Prometheus-compatible query API and nothing else changes.
@@ -1024,31 +1058,31 @@ The durable takeaways:
     **2. `external_labels`, three ways (core).** Write out `external_labels`
     three ways: Thanos-style, Mimir/Cortex-style, VictoriaMetrics-style. For
     each, name the backend it is correct for and say what goes wrong if you
-    send it to the other two. You should end with six sentences, four of
-    them describing a failure that produces no error message.
+    send it to the other two. You should end with six sentences, four of them
+    describing a failure that produces no error message.
 
     **3. Federate the recording rules (core).** Add a federation job to the
     primary that federates `{__name__=~"job:.*"}` from `prometheus-b`, and
     confirm the series arrive by finding one carrying `replica="b"`. Then
-    measure the response body for that selector and for `{__name__!=""}`
-    with `wc -c`, and extrapolate the second number to a server with a
-    million series.
+    measure the response body for that selector and for `{__name__!=""}` with
+    `wc -c`, and extrapolate the second number to a server with a million
+    series.
 
     **4. Turn off `honor_labels` (core).** Remove `honor_labels: true` from
-    that federation job and reload. Query one federated series and report
-    what `instance` and `job` now contain, and where the original values
-    went.
+    that federation job and reload. Query one federated series and report what
+    `instance` and `job` now contain, and where the original values went.
 
     **5. How many seconds your queue holds (stretch).** Using
     `rate(prometheus_tsdb_head_samples_appended_total[5m])` for your ingest
     rate and the queue geometry `max_shards * (capacity +
-    max_samples_per_send)`, compute how many seconds of samples your
-    configured queue holds. Then pause the receiver, watch
-    `prometheus_remote_storage_samples_pending` plateau, and explain where
-    the samples beyond that plateau are being kept — and why nothing was
-    lost.
+    max_samples_per_send)`, compute how many seconds of samples your queue
+    holds. Then pause the receiver, watch
+    `prometheus_remote_storage_samples_pending` plateau, and explain where the
+    samples beyond that plateau are kept — and why nothing was lost.
 
-    **6. When to leave 429 retries off (stretch).** Set `retry_on_http_429:
-    true` and reload. Then describe a receiver for which you would
-    deliberately leave it false, and name the metric that would tell you the
-    decision had cost you data.
+    **6. Prove the receiver's accepted list (stretch).** Read
+    `web.remote-write-receiver.accepted-protobuf-messages` from
+    `prometheus-b`'s `/api/v1/status/flags`, then start a second throwaway
+    receiver narrowed to `prometheus.WriteRequest` and push the same payload to
+    both with `promtool push metrics --protobuf_message=...`. Report both
+    status codes, and say which you would rather debug in production.

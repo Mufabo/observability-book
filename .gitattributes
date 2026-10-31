@@ -1,0 +1,6 @@
+# The lab had a CRLF outbreak that stopped every POSIX shell script running
+# (see lab/VERIFY-STATUS.md). lab/ pins its own endings; this pins the parent's,
+# because core.autocrlf is true system-wide on the authoring machine.
+* text=auto eol=lf
+*.epub binary
+*.png binary
